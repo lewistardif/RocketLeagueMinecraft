@@ -3,3 +3,4 @@
 /oracle/RocketSim
 *.exe
 *.pdb
+/validation/*.core.csv
