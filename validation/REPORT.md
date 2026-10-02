@@ -10,10 +10,10 @@ world of identical static planes. All errors are the **maximum over every compar
 
 | category | passed | tolerance (max pos / vel / rot / ang vel) |
 |---|---|---|
-| ground | 22/22 | 1 uu / 1 uu/s / 0.1° / 0.01 rad/s |
-| air | 24/24 | 1 uu / 1 uu/s / 0.1° / 0.01 rad/s |
-| wall | 7/7 | 1 uu / 1 uu/s / 0.1° / 0.01 rad/s |
-| body-contact | 6/6 | 25 uu / 150 uu/s / 10° / 2 rad/s |
+| ground | 22/22 | 0.25 uu / 0.25 uu/s / 0.05° / 0.005 rad/s |
+| air | 24/24 | 0.25 uu / 0.25 uu/s / 0.05° / 0.005 rad/s |
+| wall | 7/7 | 0.25 uu / 0.25 uu/s / 0.05° / 0.005 rad/s |
+| body-contact | 6/6 | 2.5 uu / 25 uu/s / 2° / 1 rad/s |
 
 ## Per scenario
 

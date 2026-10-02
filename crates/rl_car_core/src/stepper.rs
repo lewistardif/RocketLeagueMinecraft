@@ -44,6 +44,12 @@ impl FixedStepper {
     /// Add `frame_dt` seconds and run as many ticks as fit. `controls` is sampled once per
     /// frame and held for every tick in it. Returns the number of ticks run.
     pub fn advance(&mut self, frame_dt: f64, controls: &Controls, world: &dyn CollisionWorld) -> u32 {
+        self.advance_with(frame_dt, world, |_| *controls)
+    }
+
+    /// Like [`FixedStepper::advance`], but asks `controls_for` for the controls of every tick
+    /// (given the state about to be stepped) — for scripted maneuvers or bots.
+    pub fn advance_with(&mut self, frame_dt: f64, world: &dyn CollisionWorld, mut controls_for: impl FnMut(&CarState) -> Controls) -> u32 {
         self.accumulator += frame_dt.max(0.0);
         let tick = TICK_DT as f64;
         let mut n = 0;
@@ -54,7 +60,8 @@ impl FixedStepper {
                 break;
             }
             self.previous = self.current;
-            self.current = step_with(&self.current, controls, world, &self.config, TICK_DT);
+            let controls = controls_for(&self.current);
+            self.current = step_with(&self.current, &controls, world, &self.config, TICK_DT);
             self.accumulator -= tick;
             self.tick_count += 1;
             n += 1;

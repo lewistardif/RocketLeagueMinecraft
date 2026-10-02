@@ -16,10 +16,10 @@ fn deterministic_bit_for_bit() {
     let world = PlaneWorld::soccar_box();
     let script = |t: u32| Controls {
         throttle: 1.0,
-        steer: if (t / 50) % 2 == 0 { 0.7 } else { -0.4 },
+        steer: if (t / 50).is_multiple_of(2) { 0.7 } else { -0.4 },
         jump: (100..110).contains(&t) || t == 118,
         pitch: if t > 112 { -1.0 } else { 0.0 },
-        boost: t % 3 != 0,
+        boost: !t.is_multiple_of(3),
         ..Default::default()
     };
     let go = || {

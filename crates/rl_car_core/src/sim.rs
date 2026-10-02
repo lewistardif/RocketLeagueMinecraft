@@ -9,6 +9,9 @@
 //! 4. Physics step: gravity, body-vs-world contacts, integration.
 //! 5. Post: supersonic bookkeeping, speed / angular speed clamps.
 
+// Wheel loops index several parallel per-wheel arrays; a range loop reads clearest.
+#![allow(clippy::needless_range_loop)]
+
 use crate::body::Body;
 use crate::config::CarConfig;
 use crate::consts::suspension::*;
@@ -193,7 +196,7 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
                         rel_vel = 0.0;
                     }
                 }
-                (-rel_vel * ROLLING_FRICTION_SCALE_MAGIC).max(-ws.brake).min(ws.brake)
+                (-rel_vel * ROLLING_FRICTION_SCALE_MAGIC).clamp(-ws.brake, ws.brake)
             } else {
                 0.0
             }
@@ -388,7 +391,7 @@ fn update_wheels(
     } else {
         s.handbrake_val -= POWERSLIDE_FALL_RATE * dt;
     }
-    s.handbrake_val = s.handbrake_val.max(0.0).min(1.0);
+    s.handbrake_val = s.handbrake_val.clamp(0.0, 1.0);
 
     let mut real_throttle = c.throttle;
     let mut real_brake = 0.0;
@@ -713,8 +716,8 @@ fn update_auto_roll(body: &mut Body, ground_up: Vec3) {
     let cross_right = ground_up.cross(forward);
     let cross_forward = ground_down.cross(cross_right);
 
-    let right_torque_factor = 1.0 - right.dot(cross_right).max(0.0).min(1.0);
-    let forward_torque_factor = 1.0 - forward.dot(cross_forward).max(0.0).min(1.0);
+    let right_torque_factor = 1.0 - right.dot(cross_right).clamp(0.0, 1.0);
+    let forward_torque_factor = 1.0 - forward.dot(cross_forward).clamp(0.0, 1.0);
 
     let torque_dir_right = forward * if right.dot(ground_up) >= 0.0 { -1.0 } else { 1.0 };
     let torque_dir_forward = right * if forward.dot(ground_up) >= 0.0 { 1.0 } else { -1.0 };

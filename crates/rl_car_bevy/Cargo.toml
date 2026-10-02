@@ -1,0 +1,12 @@
+[package]
+name = "rl_car_bevy"
+description = "Drivable Rocket League-style car in Bevy, driven by rl_car_core (unofficial)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rl_car_core = { path = "../rl_car_core" }
+bevy = "0.19"
+avian3d = "0.7"

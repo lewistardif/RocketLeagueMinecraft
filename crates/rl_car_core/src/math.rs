@@ -343,7 +343,7 @@ impl Quat {
     }
 
     /// Hamilton product `self * o` (Bullet `btQuaternion::operator*`).
-    pub fn mul(self, o: Quat) -> Quat {
+    pub fn mul_quat(self, o: Quat) -> Quat {
         Quat {
             x: self.w * o.x + self.x * o.w + self.y * o.z - self.z * o.y,
             y: self.w * o.y + self.y * o.w + self.z * o.x - self.x * o.z,
@@ -386,13 +386,13 @@ pub fn integrate_transform(pos: Vec3, basis: &Mat3, lin_vel: Vec3, ang_vel: Vec3
         angle = ANGULAR_MOTION_THRESHOLD / dt;
     }
     let axis = if angle < 0.001 {
-        ang_vel * (0.5 * dt - (dt * dt * dt) * 0.020833333333 * angle * angle)
+        ang_vel * (0.5 * dt - (dt * dt * dt) * 0.020_833_334 * angle * angle)
     } else {
         ang_vel * ((0.5 * angle * dt).sin() / angle)
     };
     let dorn = Quat { x: axis.x, y: axis.y, z: axis.z, w: (angle * dt * 0.5).cos() };
     let orn0 = basis.to_quat();
-    let predicted = dorn.mul(orn0).safe_normalized();
+    let predicted = dorn.mul_quat(orn0).safe_normalized();
     (new_pos, Mat3::from_quat(predicted))
 }
 

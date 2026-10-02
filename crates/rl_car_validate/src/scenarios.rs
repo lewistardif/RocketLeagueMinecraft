@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)] // 0.7071 etc. are diagonal stick inputs, not sqrt(1/2).
+#![allow(clippy::vec_init_then_push)] // the scenario list reads best as a sequence of pushes.
 //! Validation scenarios: initial state + scripted controls + plane world.
 //! The same definition is written to a text file for the RocketSim oracle and run through the core.
 
