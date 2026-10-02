@@ -1,0 +1,11 @@
+# Driving head-on into a wall at 1500 uu/s (body restitution 0.3, friction 0.3).
+name hit_wall
+preset octane
+ticks 120
+plane 0 0 0 0 0 1
+plane 4096 0 0 -1 0 0
+pos 3500 0 17
+vel 1500 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100

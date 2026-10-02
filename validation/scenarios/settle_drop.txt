@@ -1,0 +1,10 @@
+# Car dropped from z=60 onto its wheels, no input (suspension settle).
+name settle_drop
+preset octane
+ticks 120
+plane 0 0 0 0 0 1
+pos 0 0 60
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100

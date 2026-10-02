@@ -1,0 +1,12 @@
+# Boosting diagonally onto a 30-degree ramp with steering.
+name ramp_30_boost
+preset octane
+ticks 300
+plane 0 0 0 0 0 1
+plane 600 0 0 -0.5 0 0.8660254
+pos 0 0 17
+vel 1200 300 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0.3 0 0 0 0 1 0

@@ -1,0 +1,11 @@
+# Lying on its side with throttle held: auto-roll pushes the car back onto its wheels.
+name side_autoroll
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 60
+vel 0 0 0
+angvel 0 0 0
+rot 0.9553365 0.29552022 0 0.0000000129175985 -0.000000041759087 -1 -0.29552022 0.9553365 -0.00000004371139
+boost 100
+ctrl 0 1 0 0 0 0 0 0 0

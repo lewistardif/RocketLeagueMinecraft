@@ -1,0 +1,15 @@
+# Alternating steer every 0.5 s with throttle, car yawed 0.7 rad.
+name slalom
+preset octane
+ticks 300
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 0.7648422 0.64421767 0 -0.64421767 0.7648422 -0 -0 0 1
+boost 100
+ctrl 0 1 1 0 0 0 0 0 0
+ctrl 60 1 -1 0 0 0 0 0 0
+ctrl 120 1 1 0 0 0 0 0 0
+ctrl 180 1 -1 0 0 0 0 0 0
+ctrl 240 1 0 0 0 0 0 0 0

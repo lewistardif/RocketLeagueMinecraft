@@ -1,0 +1,11 @@
+# Full right steer from 500 uu/s, throttle held (turning radius).
+name turn_500
+preset octane
+ticks 360
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 500 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 1 0 0 0 0 0 0

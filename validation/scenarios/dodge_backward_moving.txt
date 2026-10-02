@@ -1,0 +1,14 @@
+# Dodge (pitch 1, yaw 0) while driving at 1200 uu/s.
+name dodge_backward_moving
+preset octane
+ticks 150
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 1200 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 1 0 0
+ctrl 6 1 0 0 0 0 0 0 0
+ctrl 12 1 0 1 0 0 1 0 0
+ctrl 13 1 0 1 0 0 0 0 0

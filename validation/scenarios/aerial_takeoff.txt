@@ -1,0 +1,16 @@
+# Jump, then boost while pitching up and holding jump (fast aerial), then air roll.
+name aerial_takeoff
+preset octane
+ticks 360
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 0 0 0 1 0 0
+ctrl 12 0 0 1 0 0 0 1 0
+ctrl 16 0 0 1 0 0 1 1 0
+ctrl 18 0 0 1 0 0 0 1 0
+ctrl 40 0 0 0 0 1 0 1 0
+ctrl 120 0 0 0 -1 0 0 0 0

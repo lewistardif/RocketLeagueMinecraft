@@ -1,0 +1,14 @@
+# Second jump at 1.3 s after leaving the ground (outside the 1.25 s window: no double jump).
+name double_jump_late
+preset octane
+ticks 300
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 0 0 0 1 0 0
+ctrl 24 0 0 0 0 0 0 0 0
+ctrl 180 0 0 0 0 0 1 0 0
+ctrl 182 0 0 0 0 0 0 0 0

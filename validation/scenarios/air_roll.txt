@@ -1,0 +1,10 @@
+# Sustained air roll left in the air for 2 s.
+name air_roll
+preset octane
+ticks 240
+pos 0 0 1000
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 0 0 -1 0 0 0

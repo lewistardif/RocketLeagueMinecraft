@@ -1,0 +1,10 @@
+# Spinning car falling from z=400 onto the floor and tumbling to rest.
+name tumble_landing
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 400
+vel 300 0 0
+angvel 4 2 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100

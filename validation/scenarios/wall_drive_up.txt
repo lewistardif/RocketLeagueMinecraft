@@ -1,0 +1,12 @@
+# Driving straight up a wall at 800 uu/s with throttle (sticky force on a vertical surface).
+name wall_drive_up
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+plane 4096 0 0 -1 0 0
+pos 4079 0 600
+vel 0 0 800
+angvel 0 0 0
+rot 0 0 1 0 1 0 -1 0 0
+boost 100
+ctrl 0 1 0 0 0 0 0 0 0

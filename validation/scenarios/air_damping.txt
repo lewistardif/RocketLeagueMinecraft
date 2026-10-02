@@ -1,0 +1,10 @@
+# Free spin with no input (angular damping only applies to roll), throttle in air.
+name air_damping
+preset octane
+ticks 240
+pos 0 0 1000
+vel 0 0 0
+angvel 2 -3 1
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 0 0 0

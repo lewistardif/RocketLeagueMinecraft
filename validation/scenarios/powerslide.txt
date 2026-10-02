@@ -1,0 +1,12 @@
+# Powerslide turn at 1400 uu/s for 1.5 s, then release.
+name powerslide
+preset octane
+ticks 300
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 1400 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 1 0 0 0 0 0 1
+ctrl 180 1 0 0 0 0 0 0 0

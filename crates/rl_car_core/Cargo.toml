@@ -1,0 +1,8 @@
+[package]
+name = "rl_car_core"
+description = "Engine-agnostic, deterministic, dependency-free reimplementation of Rocket League car physics (unofficial)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

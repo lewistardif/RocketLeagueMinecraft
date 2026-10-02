@@ -1,0 +1,17 @@
+# Half-flip: backflip while reversing, cancel with stick forward, air-roll right.
+name half_flip
+preset octane
+ticks 150
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel -600 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 -1 0 0 0 0 1 0 0
+ctrl 5 -1 0 0 0 0 0 0 0
+ctrl 8 0 0 1 0 0 1 0 0
+ctrl 9 0 0 1 0 0 0 0 0
+ctrl 20 1 0 -1 0 0 0 0 0
+ctrl 40 1 0 -1 0 1 0 0 0
+ctrl 90 1 0 0 0 0 0 0 0

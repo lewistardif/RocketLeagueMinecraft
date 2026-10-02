@@ -1,0 +1,13 @@
+# Throttle 2 s, coast 1 s, brake 0.75 s, reverse 1.25 s.
+name coast_brake_reverse
+preset octane
+ticks 600
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 0 0 0
+ctrl 240 0 0 0 0 0 0 0 0
+ctrl 360 -1 0 0 0 0 0 0 0

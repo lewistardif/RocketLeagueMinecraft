@@ -1,0 +1,14 @@
+# hybrid: boost-drive 1 s, steer, then jump.
+name preset_hybrid
+preset hybrid
+ticks 300
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 0 1 0
+ctrl 120 1 0.6 0 0 0 0 0 0
+ctrl 200 1 0 0 0 0 1 0 0
+ctrl 215 1 0 0 0 0 0 0 0

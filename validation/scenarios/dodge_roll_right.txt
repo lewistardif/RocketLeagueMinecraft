@@ -1,0 +1,14 @@
+# Jump then dodge (pitch 0, yaw 0, roll 1) from rest, through the landing.
+name dodge_roll_right
+preset octane
+ticks 180
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 0 0 0 1 0 0
+ctrl 6 0 0 0 0 0 0 0 0
+ctrl 12 0 0 0 0 1 1 0 0
+ctrl 13 0 0 0 0 1 0 0 0

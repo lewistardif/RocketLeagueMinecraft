@@ -1,0 +1,12 @@
+# Hold jump for 0.25 s (full-height single jump).
+name jump_full
+preset octane
+ticks 180
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 0 0 0 1 0 0
+ctrl 30 0 0 0 0 0 0 0 0

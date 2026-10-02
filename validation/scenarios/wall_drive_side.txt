@@ -1,0 +1,12 @@
+# Driving horizontally along a wall at 1000 uu/s with throttle and slight steer up.
+name wall_drive_side
+preset octane
+ticks 300
+plane 0 0 0 0 0 1
+plane 4096 0 0 -1 0 0
+pos 4079 0 800
+vel 0 1000 0
+angvel 0 0 0
+rot 0 1 0 0 0 -1 -1 0 0
+boost 100
+ctrl 0 1 -0.15 0 0 0 0 0 0

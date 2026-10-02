@@ -1,0 +1,14 @@
+# Jump off a wall.
+name wall_jump
+preset octane
+ticks 120
+plane 0 0 0 0 0 1
+plane 4096 0 0 -1 0 0
+pos 4079 0 600
+vel 0 500 300
+angvel 0 0 0
+rot 0 1 0 0 0 -1 -1 0 0
+boost 100
+ctrl 0 1 0 0 0 0 0 0 0
+ctrl 20 1 0 0 0 0 1 0 0
+ctrl 30 1 0 0 0 0 0 0 0

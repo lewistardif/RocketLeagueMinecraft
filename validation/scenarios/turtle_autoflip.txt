@@ -1,0 +1,12 @@
+# Upside down on the floor, press jump: auto-flip back onto the wheels.
+name turtle_autoflip
+preset octane
+ticks 160
+plane 0 0 0 0 0 1
+pos 0 0 300
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 -1 0.00000008742278 0 -0.00000008742278 -1
+boost 100
+ctrl 100 0 0 0 0 0 1 0 0
+ctrl 103 0 0 0 0 0 0 0 0

@@ -1,0 +1,13 @@
+# Jumping mid-turn at 1300 uu/s and landing.
+name jump_while_turning
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 1300 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 1 0 0 0 0 0 0
+ctrl 40 1 1 0 0 0 1 0 0
+ctrl 50 1 1 0 0 0 0 0 0

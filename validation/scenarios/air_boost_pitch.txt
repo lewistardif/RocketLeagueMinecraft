@@ -1,0 +1,11 @@
+# Aerial: boost while pitching up, then release pitch.
+name air_boost_pitch
+preset octane
+ticks 240
+pos 0 0 1000
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 1 0 0 0 1 0
+ctrl 60 0 0 0 0 0 0 1 0

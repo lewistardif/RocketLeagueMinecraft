@@ -1,0 +1,10 @@
+# Pitch + yaw + roll together (hits the 5.5 rad/s cap).
+name air_combo
+preset octane
+ticks 240
+pos 0 0 1000
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 -0.6 0.8 1 0 0 0

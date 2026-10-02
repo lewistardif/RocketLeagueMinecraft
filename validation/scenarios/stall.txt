@@ -1,0 +1,14 @@
+# Stall: dodge press with yaw and opposite roll (no flip direction).
+name stall
+preset octane
+ticks 120
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 0 0 0 1 0 0
+ctrl 6 0 0 0 0 0 0 0 0
+ctrl 12 0 0 0 -1 1 1 0 0
+ctrl 13 0 0 0 -1 1 0 0 0

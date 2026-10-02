@@ -1,0 +1,11 @@
+# Same as wall_drive_side but no throttle: car loses stick and falls off.
+name wall_no_throttle
+preset octane
+ticks 180
+plane 0 0 0 0 0 1
+plane 4096 0 0 -1 0 0
+pos 4079 0 800
+vel 0 1000 0
+angvel 0 0 0
+rot 0 1 0 0 0 -1 -1 0 0
+boost 100

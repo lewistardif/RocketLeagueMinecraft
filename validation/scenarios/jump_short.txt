@@ -1,0 +1,12 @@
+# Tap jump for one tick (minimum-height jump).
+name jump_short
+preset octane
+ticks 150
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 0 0 0 1 0 0
+ctrl 1 0 0 0 0 0 0 0 0

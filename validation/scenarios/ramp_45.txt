@@ -1,0 +1,12 @@
+# Driving from the floor onto a 45-degree ramp (sharp crease) with throttle, wheels re-orient onto the new surface.
+name ramp_45
+preset octane
+ticks 300
+plane 0 0 0 0 0 1
+plane 1000 0 0 -0.70710677 0 0.70710677
+pos 0 0 17
+vel 800 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 0 0 0

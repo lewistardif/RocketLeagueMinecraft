@@ -1,0 +1,10 @@
+# Falling onto the floor tilted (pitch 0.3, roll 0.4) while moving.
+name land_tilted
+preset octane
+ticks 150
+plane 0 0 0 0 0 1
+pos 0 0 250
+vel 600 0 0
+angvel 0 0 0
+rot 0.9553365 0 0.29552022 0.11508099 0.921061 -0.37202555 -0.27219215 0.38941833 0.87992316
+boost 100

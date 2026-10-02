@@ -1,0 +1,11 @@
+# Powerslide with no throttle at 1500 uu/s.
+name powerslide_coast
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 1500 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 -1 0 0 0 0 0 1

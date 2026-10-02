@@ -1,0 +1,5 @@
+/target
+/oracle/build
+/oracle/RocketSim
+*.exe
+*.pdb

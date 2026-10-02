@@ -1,0 +1,11 @@
+# Throttle 0.5 for 3 s.
+name half_throttle
+preset octane
+ticks 360
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0.5 0 0 0 0 0 0 0

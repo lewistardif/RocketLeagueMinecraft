@@ -1,0 +1,14 @@
+# Full jump, then second jump press at 0.3 s.
+name double_jump
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0 0 0 0 0 1 0 0
+ctrl 26 0 0 0 0 0 0 0 0
+ctrl 36 0 0 0 0 0 1 0 0
+ctrl 38 0 0 0 0 0 0 0 0
