@@ -7,22 +7,27 @@
 //!
 //! World geometry comes from a [`BoxWorld`]: the host hands over the axis-aligned collision
 //! boxes around the car (for a voxel game, the blocks), and the world turns them into a seamless
-//! surface. A world can be shared by any number of cars.
+//! surface. A world can be shared by any number of cars. Hosts with a query-based collision API
+//! (GTA V's shape tests, ...) use a [`CallbackWorld`] instead: the core calls back into the host
+//! for each wheel raycast and body contact query (the `*_cb` functions).
 //!
 //! All functions accept null handles and return a neutral value for them. Nothing here is
 //! thread-safe: a handle must only be used from one thread at a time.
 
 pub mod box_world;
+pub mod callback_world;
 pub mod snapshot;
 
 pub use box_world::{Aabb, BoxWorld, Face};
+pub use callback_world::{BoxContactsFn, CallbackWorld, RaycastFn, RlContact, RlObb, RlRayHit, SphereContactsFn};
 
 use rl_car_core::camera::{CameraInput, CameraSettings, CameraTarget, CarCamera};
-use rl_car_core::{CarState, Controls, FixedStepper, HitboxPreset, Mat3, Quat, RotMat, TICK_DT, Vec3, step_with};
+use rl_car_core::{CarState, CollisionWorld, Controls, FixedStepper, HitboxPreset, Mat3, Quat, RotMat, SimConfig, TICK_DT, Vec3, step_with};
+use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped whenever a signature or a buffer layout below changes.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 /// Floats written by [`rlcar_car_pose`]:
 ///
@@ -223,7 +228,10 @@ pub unsafe extern "C" fn rlcar_car_step(
     let Some(c) = (unsafe { car.as_mut() }) else { return };
     let empty = BoxWorld::default();
     let w = unsafe { world.as_ref() }.unwrap_or(&empty);
-    let ctl = controls(throttle, steer, pitch, yaw, roll, buttons);
+    step_ticks(c, w, ticks, controls(throttle, steer, pitch, yaw, roll, buttons));
+}
+
+fn step_ticks(c: &mut Car, w: &dyn CollisionWorld, ticks: u32, ctl: Controls) {
     guard((), || {
         let st = &mut c.stepper;
         for _ in 0..ticks {
@@ -257,6 +265,183 @@ pub unsafe extern "C" fn rlcar_car_advance(
     let w = unsafe { world.as_ref() }.unwrap_or(&empty);
     let ctl = controls(throttle, steer, pitch, yaw, roll, buttons);
     guard(0, || c.stepper.advance(frame_dt, &ctl, w))
+}
+
+// ----------------------------------------------------------------------------- callback world
+
+/// A world that asks the host through callbacks (see [`CallbackWorld`]); any callback may be
+/// null (that query then finds nothing). `user` is passed back unchanged to every callback.
+/// Free with [`rlcar_cbworld_free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn rlcar_cbworld_new(
+    user: *mut c_void,
+    raycast: Option<RaycastFn>,
+    box_contacts: Option<BoxContactsFn>,
+    sphere_contacts: Option<SphereContactsFn>,
+) -> *mut CallbackWorld {
+    Box::into_raw(Box::new(CallbackWorld { user, raycast, box_contacts, sphere_contacts }))
+}
+
+/// # Safety
+/// `world` is null or a pointer from [`rlcar_cbworld_new`] not freed yet.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_cbworld_free(world: *mut CallbackWorld) {
+    if !world.is_null() {
+        drop(unsafe { Box::from_raw(world) });
+    }
+}
+
+/// [`rlcar_car_step`] against a [`CallbackWorld`]. The callbacks run on this thread, inside the call.
+///
+/// # Safety
+/// `car` and `world` are valid handles or null (a null world means empty space); the callbacks
+/// must be safe to call with the world's `user` pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_car_step_cb(
+    car: *mut Car,
+    world: *const CallbackWorld,
+    ticks: u32,
+    throttle: f32,
+    steer: f32,
+    pitch: f32,
+    yaw: f32,
+    roll: f32,
+    buttons: u32,
+) {
+    let Some(c) = (unsafe { car.as_mut() }) else { return };
+    let ctl = controls(throttle, steer, pitch, yaw, roll, buttons);
+    match unsafe { world.as_ref() } {
+        Some(w) => step_ticks(c, w, ticks, ctl),
+        None => step_ticks(c, &rl_car_core::EmptyWorld, ticks, ctl),
+    }
+}
+
+/// [`rlcar_car_advance`] against a [`CallbackWorld`].
+///
+/// # Safety
+/// As [`rlcar_car_step_cb`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_car_advance_cb(
+    car: *mut Car,
+    world: *const CallbackWorld,
+    frame_dt: f64,
+    throttle: f32,
+    steer: f32,
+    pitch: f32,
+    yaw: f32,
+    roll: f32,
+    buttons: u32,
+) -> u32 {
+    let Some(c) = (unsafe { car.as_mut() }) else { return 0 };
+    let ctl = controls(throttle, steer, pitch, yaw, roll, buttons);
+    guard(0, || match unsafe { world.as_ref() } {
+        Some(w) => c.stepper.advance(frame_dt, &ctl, w),
+        None => c.stepper.advance(frame_dt, &ctl, &rl_car_core::EmptyWorld),
+    })
+}
+
+// ------------------------------------------------------------------------------- sim config
+
+/// Floats read by [`rlcar_car_set_config`] and written by [`rlcar_car_config`] /
+/// [`rlcar_default_config`] (Rocket League's values are the defaults; see `rl_car_core::SimConfig`):
+///
+/// | index | content |
+/// |---|---|
+/// | 0 | gravity Z (uu/s², -650) |
+/// | 1 / 2 | boost acceleration on the ground / in the air (uu/s²) |
+/// | 3 | boost used per second (tank is 100) |
+/// | 4 | jump hold acceleration (uu/s²) |
+/// | 5 | jump / double jump impulse (uu/s) |
+/// | 6 / 7 | car-world friction / restitution |
+/// | 8 / 9 / 10 | unlimited flips / double jumps / boost (0 or 1) |
+/// | 11 / 12 / 13 | boost recharge on (0 or 1), per second, delay (s) |
+/// | 14 | top speed (uu/s, 2300) |
+pub const SIM_CONFIG_FLOATS: usize = 15;
+
+fn config_to(c: &SimConfig, out: &mut [f32]) {
+    let b = |v: bool| v as u32 as f32;
+    out.copy_from_slice(&[
+        c.gravity.z,
+        c.boost_accel_ground,
+        c.boost_accel_air,
+        c.boost_used_per_second,
+        c.jump_accel,
+        c.jump_immediate_force,
+        c.car_world_friction,
+        c.car_world_restitution,
+        b(c.unlimited_flips),
+        b(c.unlimited_double_jumps),
+        b(c.unlimited_boost),
+        b(c.recharge_boost_enabled),
+        c.recharge_boost_per_second,
+        c.recharge_boost_delay,
+        c.car_max_speed,
+    ]);
+}
+
+fn config_from(f: &[f32]) -> SimConfig {
+    let num = |v: f32, d: f32| if v.is_finite() { v } else { d };
+    let d = SimConfig::default();
+    SimConfig {
+        gravity: Vec3::new(0.0, 0.0, num(f[0], d.gravity.z)),
+        boost_accel_ground: num(f[1], d.boost_accel_ground),
+        boost_accel_air: num(f[2], d.boost_accel_air),
+        boost_used_per_second: num(f[3], d.boost_used_per_second),
+        jump_accel: num(f[4], d.jump_accel),
+        jump_immediate_force: num(f[5], d.jump_immediate_force),
+        car_world_friction: num(f[6], d.car_world_friction),
+        car_world_restitution: num(f[7], d.car_world_restitution),
+        unlimited_flips: f[8] != 0.0,
+        unlimited_double_jumps: f[9] != 0.0,
+        unlimited_boost: f[10] != 0.0,
+        recharge_boost_enabled: f[11] != 0.0,
+        recharge_boost_per_second: num(f[12], d.recharge_boost_per_second),
+        recharge_boost_delay: num(f[13], d.recharge_boost_delay),
+        car_max_speed: num(f[14], d.car_max_speed).max(0.0),
+    }
+}
+
+/// Writes Rocket League's defaults as [`SIM_CONFIG_FLOATS`] floats.
+///
+/// # Safety
+/// `out` points to [`SIM_CONFIG_FLOATS`] writable floats (or is null).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_default_config(out: *mut f32) {
+    if !out.is_null() {
+        config_to(&SimConfig::default(), unsafe { std::slice::from_raw_parts_mut(out, SIM_CONFIG_FLOATS) });
+    }
+}
+
+/// Writes the car's current config as [`SIM_CONFIG_FLOATS`] floats.
+///
+/// # Safety
+/// `car` is null or valid; `out` points to [`SIM_CONFIG_FLOATS`] writable floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_car_config(car: *const Car, out: *mut f32) {
+    if let (Some(c), false) = (unsafe { car.as_ref() }, out.is_null()) {
+        config_to(&c.stepper.config, unsafe { std::slice::from_raw_parts_mut(out, SIM_CONFIG_FLOATS) });
+    }
+}
+
+/// Replaces the car's config ([`SIM_CONFIG_FLOATS`] floats; non-finite values keep the default).
+/// Takes effect on the next tick. Turning unlimited boost on fills the tank, like
+/// [`rlcar_car_set_unlimited_boost`].
+///
+/// # Safety
+/// `car` is null or valid; `config` points to [`SIM_CONFIG_FLOATS`] readable floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_car_set_config(car: *mut Car, config: *const f32) {
+    let Some(c) = (unsafe { car.as_mut() }) else { return };
+    if config.is_null() {
+        return;
+    }
+    let cfg = config_from(unsafe { std::slice::from_raw_parts(config, SIM_CONFIG_FLOATS) });
+    if cfg.unlimited_boost && !c.stepper.config.unlimited_boost {
+        for s in [&mut c.stepper.previous, &mut c.stepper.current] {
+            s.boost_amount = rl_car_core::consts::BOOST_MAX;
+        }
+    }
+    c.stepper.config = cfg;
 }
 
 /// Interpolation factor (0..1) between the previous and current tick after [`rlcar_car_advance`].
@@ -643,6 +828,81 @@ mod tests {
             // Null handles are harmless.
             rlcar_car_step(std::ptr::null_mut(), std::ptr::null(), 1, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
             assert_eq!(rlcar_car_pose(std::ptr::null(), 0.0, pose.as_mut_ptr()), 0);
+        }
+    }
+
+    #[test]
+    fn c_api_config_round_trips_and_defaults_change_nothing() {
+        unsafe {
+            let mut d = [0.0f32; SIM_CONFIG_FLOATS];
+            rlcar_default_config(d.as_mut_ptr());
+            assert_eq!(d[0], -650.0);
+            assert_eq!(d[14], 2300.0);
+            let (a, b) = (rlcar_car_new(0), rlcar_car_new(0));
+            rlcar_car_set_config(b, d.as_ptr());
+            assert_eq!((*b).stepper.config, SimConfig::default());
+            for p in [a, b] {
+                rlcar_car_reset(p, [0.0f32, 0.0, 17.0].as_ptr(), 0.0, 0.0, 0.0);
+                rlcar_car_step(p, std::ptr::null(), 240, 1.0, 0.3, 0.0, 0.0, 0.0, buttons::BOOST);
+            }
+            assert_eq!((*a).stepper.current, (*b).stepper.current);
+
+            // A lower top speed caps the car; non-finite values keep the default.
+            let mut slow = d;
+            slow[14] = 1000.0;
+            slow[0] = f32::NAN;
+            rlcar_car_set_config(b, slow.as_ptr());
+            let mut back = [0.0f32; SIM_CONFIG_FLOATS];
+            rlcar_car_config(b, back.as_mut_ptr());
+            assert_eq!(back[0], -650.0);
+            rlcar_car_step(b, std::ptr::null(), 240, 0.0, 0.0, 0.0, 0.0, 0.0, buttons::BOOST);
+            assert!((*b).stepper.current.velocity.length() <= 1000.0 + 1e-3);
+            rlcar_car_free(a);
+            rlcar_car_free(b);
+        }
+    }
+
+    #[test]
+    fn c_api_callback_world_matches_box_world() {
+        // Host callbacks that forward to a BoxWorld: same results as passing the BoxWorld itself.
+        unsafe extern "C" fn ray(u: *mut c_void, o: *const f32, d: *const f32, max: f32, hit: *mut RlRayHit) -> u32 {
+            let w = unsafe { &*(u as *const BoxWorld) };
+            let (o, d) = unsafe { (read_v(o), read_v(d)) };
+            w.raycast(o, d, max).map_or(0, |h| {
+                unsafe { *hit = RlRayHit { distance: h.distance, point: h.point.to_array(), normal: h.normal.to_array() } };
+                1
+            })
+        }
+        unsafe extern "C" fn bx(u: *mut c_void, obb: *const RlObb, margin: f32, out: *mut RlContact, cap: u32) -> u32 {
+            let w = unsafe { &*(u as *const BoxWorld) };
+            let mut v = Vec::new();
+            w.box_contacts(&callback_world::obb_from_c(unsafe { &*obb }), margin, &mut v);
+            let out = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
+            for (slot, c) in out.iter_mut().zip(&v) {
+                *slot = RlContact { point: c.point.to_array(), normal: c.normal.to_array(), depth: c.depth, surface: c.surface };
+            }
+            v.len().min(cap as usize) as u32
+        }
+        unsafe {
+            let bw = rlcar_world_new();
+            let boxes = block_floor_boxes(20);
+            rlcar_world_set_boxes(bw, boxes.as_ptr(), (boxes.len() / 6) as u32);
+            let cw = rlcar_cbworld_new(bw as *mut c_void, Some(ray), Some(bx), None);
+            let (a, b) = (rlcar_car_new(1), rlcar_car_new(1));
+            for p in [a, b] {
+                rlcar_car_reset(p, [0.0f32, 0.0, 60.0].as_ptr(), 0.3, 0.0, 0.0);
+            }
+            for i in 0..300 {
+                let btn = if i % 90 < 8 { buttons::JUMP } else { buttons::BOOST };
+                rlcar_car_advance(a, bw, 1.0 / 60.0, 1.0, 0.4, -0.5, 0.0, 0.0, btn);
+                rlcar_car_advance_cb(b, cw, 1.0 / 60.0, 1.0, 0.4, -0.5, 0.0, 0.0, btn);
+                assert_eq!((*a).stepper.current, (*b).stepper.current, "frame {i}");
+            }
+            rlcar_car_step_cb(b, std::ptr::null(), 1, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
+            rlcar_cbworld_free(cw);
+            rlcar_world_free(bw);
+            rlcar_car_free(a);
+            rlcar_car_free(b);
         }
     }
 

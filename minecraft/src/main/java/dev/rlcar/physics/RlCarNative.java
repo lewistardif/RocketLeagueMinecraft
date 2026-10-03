@@ -35,7 +35,7 @@ import net.fabricmc.loader.api.FabricLoader;
  */
 public final class RlCarNative {
 	/** Must match {@code rl_car_ffi::ABI_VERSION}. */
-	public static final int ABI_VERSION = 3;
+	public static final int ABI_VERSION = 4;
 	/** Must match {@code rl_car_ffi::POSE_FLOATS}. */
 	public static final int POSE_FLOATS = 40;
 	/** Must match {@code rl_car_ffi::CAMERA_SETTINGS_FLOATS}. */
