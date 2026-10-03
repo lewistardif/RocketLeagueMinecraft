@@ -8,7 +8,9 @@ Pipeline
   1. decrypt the needed packages with RL-UPKSuite (via the small `rldecrypt` wrapper in this folder),
   2. export meshes / materials / textures with UModel (UE Viewer) as glTF + PNG,
   3. rebuild each material for Bevy's PBR (bake the team paint, swizzle normal maps, light masks to
-     emissive) and write one glTF per car and team, plus the default wheel.
+     emissive) and write one glTF per car and team, plus the default wheel;
+  4. read the default boost (flame cones, smoke trail) straight from the cooked objects (`boost.py`,
+     `ue3.py`) into `boost/`.
 
 Requirements: Python 3.9+ with numpy and Pillow, the .NET SDK (8+), UModel
 (https://www.gildor.org/en/projects/umodel) and RL-UPKSuite (https://github.com/Martinii89/RL-UPKSuite).
@@ -29,6 +31,9 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from boost import PACKAGES as BOOST_PACKAGES, Boost  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_GAME = Path(r"C:\Program Files\Epic Games\rocketleague")
@@ -99,11 +104,21 @@ def link_texture_caches(cooked: Path, out: Path) -> None:
             sys.exit(f"cannot hard-link {tfc} -> {dst} ({e}). Put --work on the same drive as the game.")
 
 
-def umodel_export(umodel: Path, pkgs: Path, out: Path, package: str, obj: str) -> None:
-    r = run([str(umodel), "-game=rocketleague", "-export", "-gltf", "-png", f"-out={out}", f"-path={pkgs}", package, obj])
+def umodel_export(umodel: Path, pkgs: Path, out: Path, package: str, obj: str, groups: bool = False) -> None:
+    r = run([str(umodel), "-game=rocketleague", "-export", "-gltf", "-png", *(["-groups"] if groups else []), f"-out={out}", f"-path={pkgs}", package, obj])
     log = r.stdout + r.stderr
     if r.returncode != 0 or "*** ERROR" in log:
         sys.exit(f"UModel failed to export {package}.{obj}:\n{log[-2000:]}")
+
+
+def umodel_export_grouped(umodel: Path, pkgs: Path, out: Path, package: str, obj: str, kind: str) -> list[Path]:
+    """Exports every object named `obj` into folders named after its groups; returns the files."""
+    ext = ".gltf" if kind == "StaticMesh" else ".png"
+    hits = sorted((out / package).rglob(f"{obj}{ext}")) if (out / package).exists() else []
+    if not hits:
+        umodel_export(umodel, pkgs, out, package, obj, groups=True)
+        hits = sorted((out / package).rglob(f"{obj}{ext}"))
+    return hits
 
 
 # ------------------------------------------------------------------------------------ materials
@@ -346,7 +361,7 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
     exe = build_decryptor(args.upksuite.resolve(), args.work.resolve())
-    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0]}), pkgs)
+    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0]} | set(BOOST_PACKAGES)), pkgs)
     link_texture_caches(cooked, pkgs)
 
     for preset, (package, mesh) in CARS.items():
@@ -374,6 +389,10 @@ def main() -> None:
     baker = MaterialBaker(wheel_dir, Textures(export, package))
     mats = [baker.bake(m["name"], material_props(export, package, m["name"]), TEAMS["blue"], "blue") for m in json.loads(src.read_text())["materials"]]
     write_gltf(src, wheel_dir, "wheel.gltf", mats, baker.images)
+
+    print("boost: flame cones, smoke trail")
+    grouped = args.work / "export_groups"
+    Boost(pkgs, args.out, CARS, lambda package, obj, kind: umodel_export_grouped(umodel, pkgs, grouped, package, obj, kind)).run()
 
     (args.out / "README.txt").write_text(
         "Extracted from a local Rocket League install by tools/rl_assets/extract.py.\n"

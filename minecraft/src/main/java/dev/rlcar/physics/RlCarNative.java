@@ -50,6 +50,7 @@ public final class RlCarNative {
 	public static final int FLAG_HAS_FLIP_OR_JUMP = 1 << 3;
 	public static final int FLAG_FLIPPING = 1 << 4;
 	public static final int FLAG_JUMPING = 1 << 5;
+	public static final int FLAG_THROTTLING = 1 << 6;
 	public static final int FLAG_WHEEL_CONTACT_SHIFT = 8;
 
 	public static final int BUTTON_JUMP = 1;

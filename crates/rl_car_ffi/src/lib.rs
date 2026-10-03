@@ -47,6 +47,8 @@ pub mod flags {
     pub const HAS_FLIP_OR_JUMP: u32 = 1 << 3;
     pub const FLIPPING: u32 = 1 << 4;
     pub const JUMPING: u32 = 1 << 5;
+    /// Throttle input is non-zero (the boost's exhaust puffs show while throttling).
+    pub const THROTTLING: u32 = 1 << 6;
     /// Bit `WHEEL_CONTACT_SHIFT + i` = wheel `i` touches the ground.
     pub const WHEEL_CONTACT_SHIFT: u32 = 8;
 }
@@ -314,6 +316,7 @@ pub fn write_pose(a: &CarState, b: &CarState, alpha: f32, out: &mut [f32]) -> u3
         (flags::HAS_FLIP_OR_JUMP, b.has_flip_or_jump()),
         (flags::FLIPPING, b.is_flipping),
         (flags::JUMPING, b.is_jumping),
+        (flags::THROTTLING, b.last_controls.throttle != 0.0),
     ] {
         if on {
             f |= bit;
