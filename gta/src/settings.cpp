@@ -35,19 +35,17 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	debugLog = ini.flag("General", "DebugLog", false);
 	worldScale = std::clamp(ini.num("Scale", "WorldScale", 2.5), 0.1, 20.0);
 
-	// Physics: rl_car_ffi's SIM_CONFIG_FLOATS layout.
 	api.default_config(sim);
 	static const char* kSimKeys[ffi::SIM_CONFIG_FLOATS] = {
 		"Gravity", "BoostAccelGround", "BoostAccelAir", "BoostUsedPerSecond", "JumpAccel", "JumpImpulse", "WorldFriction",
 		"WorldRestitution", "UnlimitedFlips", "UnlimitedDoubleJumps", "UnlimitedBoost", "BoostRecharge",
 		"BoostRechargePerSecond", "BoostRechargeDelay", "MaxSpeed"};
-	sim[10] = 1;  // unlimited boost on unless the ini says otherwise
+	sim[10] = 1;
 	for (int i = 0; i < ffi::SIM_CONFIG_FLOATS; i++) {
 		bool isFlag = (i >= 8 && i <= 11);
 		sim[i] = isFlag ? (ini.flag("Car", kSimKeys[i], sim[i] != 0) ? 1.0f : 0.0f) : ini.numf("Car", kSimKeys[i], sim[i]);
 	}
 
-	// Camera: a preset, then any explicit value overrides it (Rocket League's "Custom").
 	int cp = cameraPresetIndex(ini.str("Camera", "Preset", "Default"));
 	api.camera_preset(cp < 0 ? 0 : uint32_t(cp), camera);
 	static const char* kCamKeys[ffi::CAMERA_SETTINGS_FLOATS] = {"FOV", "Height", "Angle", "Distance", "Stiffness",
@@ -59,5 +57,12 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	probeFlags = int(ini.num("World", "ProbeFlags", probeFlags));
 	wallRamps = ini.flag("World", "WallRamps", true);
 	wallRampRadius = std::clamp(ini.numf("World", "WallRampRadius", 320), 50.0f, 2000.0f);
+	ballEnabled = ini.flag("Ball", "Enabled", true);
+	ballModel = ini.str("Ball", "Model", "stt_prop_stunt_soccer_ball");
+	ballCamOnSpawn = ini.flag("Ball", "BallCamOnSpawn", true);
+	api.default_ball_config(ball);
+	static const char* kBallKeys[ffi::BALL_CONFIG_FLOATS] = {"Radius", "Mass", "Drag", "WorldFriction", "WorldRestitution",
+	                                                          "MaxSpeed", "MaxSpin", "CarFriction", "CarRestitution", "HitForce"};
+	for (int i = 0; i < ffi::BALL_CONFIG_FLOATS; i++) ball[i] = ini.numf("Ball", kBallKeys[i], ball[i]);
 	bindings.load(ini);
 }

@@ -16,10 +16,8 @@ inline void cross(float* o, const float* a, const float* b) {
 inline void sub(float* o, const float* a, const float* b) {
 	for (int i = 0; i < 3; i++) o[i] = a[i] - b[i];
 }
-// Component of `v` perpendicular to unit `d`.
 inline void perp(float* o, const float* v, const float* d) { madd(o, v, d, -dot(v, d)); }
 
-// The 26 neighbour directions of a cube, in a fixed order.
 struct Dirs {
 	float d[26][3];
 	Dirs() {
@@ -38,10 +36,9 @@ const Dirs kDirs;
 void sortById(ffi::Contact* out, uint32_t n) {
 	std::stable_sort(out, out + n, [](const ffi::Contact& a, const ffi::Contact& b) { return a.surface < b.surface; });
 }
-}  // namespace
+}
 
 uint32_t planeId(const float* n, const float* p) {
-	// Quantised normal (~2 degrees) and offset (8 uu): stable while the car slides along a surface.
 	int q[4] = {int(std::lround(n[0] * 32)), int(std::lround(n[1] * 32)), int(std::lround(n[2] * 32)),
 	            int(std::lround(dot(n, p) / 8.0f))};
 	uint32_t h = 2166136261u;
@@ -52,7 +49,6 @@ uint32_t planeId(const float* n, const float* p) {
 	return h;
 }
 
-// Horizontal probes out to `reach`, so walls are known before the car reaches their ramp.
 void ProbeWorld::probeForWalls(Cache& c, const float* center, const float* up, float reach) {
 	float ref[3] = {1, 0, 0};
 	if (std::fabs(dot(ref, up)) > 0.9f) ref[0] = 0, ref[1] = 1;
@@ -76,20 +72,18 @@ void ProbeWorld::buildRamps(Cache& c) {
 	if (!wallRamps) return;
 	const float R = rampRadius;
 	for (auto& f : c.planes) {
-		if (f.n[2] < 0.7f) continue;  // floors: up to ~45 degrees
+		if (f.n[2] < 0.7f) continue;
 		for (auto& w : c.planes) {
-			if (std::fabs(w.n[2]) > 0.35f) continue;  // walls: within ~20 degrees of vertical
+			if (std::fabs(w.n[2]) > 0.35f) continue;
 			float fw[3], wf[3];
 			sub(fw, f.p, w.p);
 			sub(wf, w.p, f.p);
-			// Concave corner: the floor point is in front of the wall, the wall point above the floor.
 			if (dot(w.n, fw) <= 0 || dot(f.n, wf) <= -1) continue;
 			Ramp r{};
 			cross(r.d, f.n, w.n);
 			float dl = len(r.d);
 			if (dl < 0.2f) continue;
 			for (float& v : r.d) v /= dl;
-			// Axis: R from both planes on their free side.
 			float bF = dot(f.n, f.p) + R, bW = dot(w.n, w.p) + R, ff = dot(f.n, f.n), ww = dot(w.n, w.n), fwn = dot(f.n, w.n);
 			float det = ff * ww - fwn * fwn;
 			for (int i = 0; i < 3; i++) r.x0[i] = ((bF * ww - bW * fwn) * f.n[i] + (bW * ff - bF * fwn) * w.n[i]) / det;
@@ -102,7 +96,6 @@ void ProbeWorld::buildRamps(Cache& c) {
 	}
 }
 
-// The ramp only exists where the real wall does: probe from the curve towards the wall.
 bool ProbeWorld::wallBehind(const Ramp& r, const float* q) {
 	float to[3];
 	madd(to, q, r.nWall, -(rampRadius + 30.0f));
@@ -114,22 +107,21 @@ bool ProbeWorld::wallBehind(const Ramp& r, const float* q) {
 	return std::fabs(dot(r.nWall, off)) < 6.0f && dot(h.normal, r.nWall) > 0.9f;
 }
 
-// First point where the ray leaves the cylinder's free inside into the ramp solid.
 bool ProbeWorld::rayRamp(const Ramp& r, const float* o, const float* dir, float maxDist, float& t, float* n) const {
 	float rel[3], op[3], dp[3];
 	sub(rel, o, r.x0);
 	perp(op, rel, r.d);
 	perp(dp, dir, r.d);
 	float a = dot(dp, dp), b = dot(op, dp), cc = dot(op, op) - rampRadius * rampRadius;
-	if (a < 1e-8f) return false;  // parallel to the axis
-	if (cc > 0 && dot(op, r.nFloor) <= 0 && dot(op, r.nWall) <= 0) return false;  // starts inside the solid
+	if (a < 1e-8f) return false;
+	if (cc > 0 && dot(op, r.nFloor) <= 0 && dot(op, r.nWall) <= 0) return false;
 	float disc = b * b - a * cc;
 	if (disc < 0) return false;
 	t = (-b + std::sqrt(disc)) / a;
 	if (t < 0 || t > maxDist) return false;
 	float q[3];
-	madd(q, op, dp, t);  // hit point relative to the axis, perpendicular part
-	if (dot(q, r.nFloor) > 0 || dot(q, r.nWall) > 0) return false;  // outside the corner quadrant
+	madd(q, op, dp, t);
+	if (dot(q, r.nFloor) > 0 || dot(q, r.nWall) > 0) return false;
 	for (int i = 0; i < 3; i++) n[i] = -q[i] / rampRadius;
 	return true;
 }
@@ -172,11 +164,11 @@ void ProbeWorld::addHit(Cache& c, const ProbeHit& h, const float* rayDir) {
 	float nl = len(h.normal);
 	if (!(nl > 0.5f)) return;
 	float n[3] = {h.normal[0] / nl, h.normal[1] / nl, h.normal[2] / nl};
-	if (dot(n, rayDir) > -0.05f) return;  // back face or grazing
+	if (dot(n, rayDir) > -0.05f) return;
 	c.hits.push_back(h);
 	for (auto& pl : c.planes) {
 		float diff[3] = {h.point[0] - pl.p[0], h.point[1] - pl.p[1], h.point[2] - pl.p[2]};
-		if (dot(pl.n, n) > 0.9986f && std::fabs(dot(pl.n, diff)) < 3.0f) return;  // same surface (3 deg, 3 uu)
+		if (dot(pl.n, n) > 0.9986f && std::fabs(dot(pl.n, diff)) < 3.0f) return;
 	}
 	Plane pl{};
 	for (int i = 0; i < 3; i++) pl.p[i] = h.point[i], pl.n[i] = n[i];
@@ -208,7 +200,6 @@ uint32_t ProbeWorld::boxContacts(const ffi::Obb& obb, float margin, ffi::Contact
 			if (probe_(c, to, h)) addHit(boxCache_, h, dir);
 		}
 		if (wallRamps) {
-			// Find the floor under the car even when the wheels are high above it (on a ramp).
 			float down[3] = {0, 0, -1}, to[3];
 			madd(to, c, down, rampRadius + 100.0f);
 			ProbeHit h;
@@ -222,7 +213,6 @@ uint32_t ProbeWorld::boxContacts(const ffi::Obb& obb, float margin, ffi::Contact
 	uint32_t n = 0;
 	for (auto& r : boxCache_.ramps) {
 		if (n >= cap) break;
-		// Deepest box vertex inside the ramp solid (farther than the radius from the axis, in the corner).
 		float best = -1e30f, bestV[3] = {}, bestQ[3] = {};
 		for (int k = 0; k < 8; k++) {
 			float v[3] = {c[0], c[1], c[2]};
@@ -249,13 +239,11 @@ uint32_t ProbeWorld::boxContacts(const ffi::Obb& obb, float margin, ffi::Contact
 	}
 	for (auto& pl : boxCache_.planes) {
 		if (n >= cap) break;
-		// Deepest box vertex along -normal (Obb::support(-n) in the core).
 		float deepest[3] = {c[0], c[1], c[2]};
 		for (int a = 0; a < 3; a++) madd(deepest, deepest, ax[a], (dot(ax[a], pl.n) >= 0 ? -1.0f : 1.0f) * he[a]);
 		float rel[3] = {deepest[0] - pl.p[0], deepest[1] - pl.p[1], deepest[2] - pl.p[2]};
 		float dist = dot(pl.n, rel);
 		if (dist >= margin) continue;
-		// Is there real surface under that vertex? Probe straight at it.
 		float from[3], to[3];
 		madd(from, deepest, pl.n, std::max(margin, 0.0f) + 15.0f);
 		madd(to, deepest, pl.n, -(std::max(-dist, 0.0f) + 15.0f));
@@ -285,7 +273,7 @@ uint32_t ProbeWorld::sphereContacts(const float* c, float r, float margin, ffi::
 			float l = len(dir);
 			for (float& v : dir) v /= l;
 			float to[3];
-			madd(to, c, dir, r + margin + lookahead);
+			madd(to, c, dir, r + margin + sphereLookahead);
 			ProbeHit h;
 			probes++;
 			if (probe_(c, to, h)) addHit(sphereCache_, h, dir);
@@ -327,8 +315,6 @@ uint32_t ProbeWorld::sphereContacts(const float* c, float r, float margin, ffi::
 		if (dist >= margin) continue;
 		float foot[3];
 		madd(foot, c, pl.n, -centerDist);
-		// Real surface at the foot of the perpendicular? Otherwise this is an edge or corner: use the
-		// nearest probe hit instead, with the normal pointing from it to the centre.
 		float from[3], to[3];
 		madd(from, c, pl.n, 0.0f);
 		madd(to, c, pl.n, -(centerDist + 10.0f));

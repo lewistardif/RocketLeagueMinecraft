@@ -51,6 +51,17 @@ bool load(const std::string& path, Api& api, std::string& error) {
 	get(api.camera_translate, "rlcar_camera_translate");
 	get(api.camera_update, "rlcar_camera_update");
 	get(api.camera_preset, "rlcar_camera_preset");
+	get(api.ball_new, "rlcar_ball_new");
+	get(api.ball_free, "rlcar_ball_free");
+	get(api.ball_reset, "rlcar_ball_reset");
+	get(api.ball_translate, "rlcar_ball_translate");
+	get(api.default_ball_config, "rlcar_default_ball_config");
+	get(api.ball_config, "rlcar_ball_config");
+	get(api.ball_set_config, "rlcar_ball_set_config");
+	get(api.ball_pose, "rlcar_ball_pose");
+	get(api.car_ball_touch, "rlcar_car_ball_touch");
+	get(api.scene_advance_cb, "rlcar_scene_advance_cb");
+	get(api.camera_update_ball, "rlcar_camera_update_ball");
 	if (ok && api.abi_version() != ABI_VERSION) {
 		error = "rl_car_ffi ABI " + std::to_string(api.abi_version()) + ", plugin expects " + std::to_string(ABI_VERSION) +
 		        "; rebuild with gta\\build.bat";
@@ -59,4 +70,4 @@ bool load(const std::string& path, Api& api, std::string& error) {
 	return ok;
 }
 
-}  // namespace ffi
+}

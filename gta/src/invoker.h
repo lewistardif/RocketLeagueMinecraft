@@ -1,10 +1,9 @@
-// Typed calls into Script Hook V's native invoker (nativeInit / nativePush64 / nativeCall).
 #pragma once
 #include <windows.h>
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
-#include "main.h"  // Script Hook V SDK
+#include "main.h"
 
 typedef int Any;
 typedef unsigned int Hash;
@@ -19,7 +18,6 @@ typedef int Blip;
 typedef int FireId;
 typedef int Interior;
 
-// Script vectors: three floats, each padded to 8 bytes.
 #pragma pack(push, 1)
 struct Vector3 {
 	float x; DWORD _px;

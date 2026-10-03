@@ -41,7 +41,6 @@ pub struct SimConfig {
     pub recharge_boost_enabled: bool,
     pub recharge_boost_per_second: f32,
     pub recharge_boost_delay: f32,
-    /// Speed cap (uu/s). Rocket League: 2300.
     pub car_max_speed: f32,
 }
 

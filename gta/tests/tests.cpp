@@ -1,6 +1,3 @@
-// Unit tests for the GTA plugin's game-independent parts, against the real rl_car_ffi library.
-//   gta/tests/run_tests.sh (Linux / WSL / MSYS)   or   gta\build.bat test (Windows)
-// argv[1] = path to rl_car_ffi (.dll / .so).
 #include "../src/bindings.h"
 #include "../src/ini.h"
 #include "../src/probe_world.h"
@@ -42,8 +39,6 @@ static void* rawSym(const char* name) {
 #endif
 }
 
-// ------------------------------------------------------------------------------- conversion
-
 static void testSpace() {
 	space::Frame f;
 	f.origin = {100, -200, 30};
@@ -51,12 +46,11 @@ static void testSpace() {
 	float rl[3] = {400, 100, -40}, back[3];
 	space::V3 g = f.toGta(rl);
 	NEAR(g.x, 110, 1e-9);
-	NEAR(g.y, -202.5, 1e-9);  // +Y (right) in RL is -Y in GTA's mirrored frame
+	NEAR(g.y, -202.5, 1e-9);
 	NEAR(g.z, 29, 1e-9);
 	f.toRl(g, back);
 	for (int i = 0; i < 3; i++) NEAR(back[i], rl[i], 1e-3);
 
-	// Heading <-> RL yaw: a car facing GTA north (+Y) has RL forward (0, -1, 0).
 	for (double h : {0.0, 45.0, 90.0, 180.0, -135.0}) {
 		float y = space::headingToRlYaw(h);
 		float fwd[3] = {std::cos(y), std::sin(y), 0};
@@ -66,11 +60,8 @@ static void testSpace() {
 		NEAR(diff, 0, 1e-4);
 	}
 
-	// Orientation: the identity RL car (forward +X, right +Y, up +Z) faces GTA east with its right
-	// side to the south; the quaternion must rotate GTA's +Y (entity forward) onto +X.
 	float cols[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 	space::Quat q = space::carRotToGta(cols);
-	// Rotate (0, 1, 0) by q.
 	auto rot = [&](double vx, double vy, double vz, double* o) {
 		double x = q.x, y = q.y, z = q.z, w = q.w;
 		double tx = 2 * (y * vz - z * vy), ty = 2 * (z * vx - x * vz), tz = 2 * (x * vy - y * vx);
@@ -82,12 +73,11 @@ static void testSpace() {
 	rot(0, 1, 0, o);
 	NEAR(o[0], 1, 1e-6);
 	NEAR(o[1], 0, 1e-6);
-	rot(1, 0, 0, o);  // entity right -> GTA south (-Y)
+	rot(1, 0, 0, o);
 	NEAR(o[1], -1, 1e-6);
 	rot(0, 0, 1, o);
 	NEAR(o[2], 1, 1e-6);
 
-	// Camera looking along GTA +X, level: yaw -90, pitch 0, roll 0.
 	float cam[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 	space::V3 r = space::cameraRotToGta(cam);
 	NEAR(r.x, 0, 1e-6);
@@ -95,7 +85,6 @@ static void testSpace() {
 	NEAR(r.z, -90, 1e-6);
 }
 
-// An analytic GTA-like world for ProbeWorld: a floor at z = 0 plus a wall at x = 600 (RL space).
 static bool planeProbe(const float* a, const float* b, ProbeHit& h) {
 	struct P {
 		float n[3], d;
@@ -114,34 +103,26 @@ static bool planeProbe(const float* a, const float* b, ProbeHit& h) {
 	return best <= 1;
 }
 
-// Steering right in the core turns the car right in GTA (clockwise seen from above).
 static void testYawSign() {
 	ProbeWorld pw(planeProbe);
 	pw.wallRamps = false;
 	ffi::World* w = api.cbworld_new(&pw, &ProbeWorld::cbRaycast, &ProbeWorld::cbBox, &ProbeWorld::cbSphere);
 	ffi::Car* car = api.car_new(0);
 	float pos[3] = {0, 0, 17};
-	api.car_reset(car, pos, space::headingToRlYaw(0), 0, 0);  // facing GTA north
+	api.car_reset(car, pos, space::headingToRlYaw(0), 0, 0);
 	api.car_step_cb(car, w, 60, 0, 0, 0, 0, 0, 0);
-	api.car_step_cb(car, w, 120, 1.0f, 1.0f, 0, 0, 0, 0);  // throttle + steer right
+	api.car_step_cb(car, w, 120, 1.0f, 1.0f, 0, 0, 0, 0);
 	float pose[ffi::POSE_FLOATS];
 	api.car_pose(car, 1, pose);
 	space::V3 f = space::dirToGta(pose + 3);
-	// Clockwise from north: forward rotates towards east (+X), heading decreases.
 	CHECK(f.x > 0.3);
 	CHECK(space::headingOf(f) < -15);
 	space::V3 p = space::Frame{}.toGta(pose);
-	CHECK(p.x > 0);  // drifted to the right of north
+	CHECK(p.x > 0);
 	api.car_free(car);
 	api.cbworld_free(w);
 }
 
-// ProbeWorld (probes only) against the exact BoxWorld for the same floor + sharp wall: the car rests
-// at RL's 17 uu, boosts into the wall head-on and stops against it (as in Rocket League, a sharp
-// 90 degree corner is not climbable from the ground), staying within a fraction of a uu of the
-// reference. After a dead-centre impact the car slides along the wall to one side or the other,
-// decided by float noise between equally deep corners (see the root README), so sideways position
-// is compared by magnitude.
 static void testProbeWorldMatchesReference() {
 	using WorldNew = void* (*)();
 	using SetBoxes = uint32_t (*)(void*, const float*, uint32_t);
@@ -156,7 +137,7 @@ static void testProbeWorldMatchesReference() {
 	setBoxes(bw, boxes, 2);
 
 	ProbeWorld pw(planeProbe);
-	pw.wallRamps = false;  // the reference has sharp corners
+	pw.wallRamps = false;
 	ffi::World* cw = api.cbworld_new(&pw, &ProbeWorld::cbRaycast, &ProbeWorld::cbBox, &ProbeWorld::cbSphere);
 	ffi::Car *a = api.car_new(0), *b = api.car_new(0);
 	float pos[3] = {-1500, 0, 50};
@@ -175,19 +156,17 @@ static void testProbeWorldMatchesReference() {
 		double e = std::sqrt(std::pow(pa[0] - pb[0], 2) + dy * dy + std::pow(pa[2] - pb[2], 2));
 		if (e > maxErr) maxErr = e;
 		if (pb[0] > maxZ) maxZ = pb[0];
-		if (t == 59) NEAR(pb[2], 17.0, 0.1);  // RL's rest height
+		if (t == 59) NEAR(pb[2], 17.0, 0.1);
 	}
 	std::printf("  probe world vs BoxWorld: max position error %.3f uu, closest approach x %.1f uu, %llu probes\n",
 	            maxErr, maxZ, static_cast<unsigned long long>(pw.probes));
-	CHECK(maxZ > 500 && maxZ < 600);  // reached the wall at x = 600 and never went through it
+	CHECK(maxZ > 500 && maxZ < 600);
 	CHECK(maxErr < 0.5);
 	api.car_free(a);
 	api.car_free(b);
 	api.cbworld_free(cw);
 }
 
-// With WallRamps the same sharp wall gets an invisible quarter-pipe: the car boosts into it, rides
-// up the curve onto the wall and keeps climbing on the wall (sticky force), like an arena wall.
 static void testWallRampClimb() {
 	ProbeWorld pw(planeProbe);
 	ffi::World* w = api.cbworld_new(&pw, &ProbeWorld::cbRaycast, &ProbeWorld::cbBox, &ProbeWorld::cbSphere);
@@ -201,18 +180,16 @@ static void testWallRampClimb() {
 		uint32_t f = api.car_pose(car, 1, pose);
 		peak = std::max(peak, pose[2]);
 		maxX = std::max(maxX, pose[0]);
-		if (f & ffi::flags::ON_GROUND) minUpX = std::min(minUpX, pose[9]);  // up.x: -1 when flat on the wall
+		if (f & ffi::flags::ON_GROUND) minUpX = std::min(minUpX, pose[9]);
 	}
 	std::printf("  wall ramp: peak height %.0f uu, closest x %.1f, up.x on the wall %.2f, %zu ramps\n", peak, maxX, minUpX,
 	            pw.ramps().size());
-	CHECK(peak > 1000);    // drove up the curve and on up the wall
-	CHECK(maxX < 600);     // never through the wall
-	CHECK(minUpX < -0.9f);  // wheels on the vertical wall
+	CHECK(peak > 1000);
+	CHECK(maxX < 600);
+	CHECK(minUpX < -0.9f);
 	api.car_free(car);
 	api.cbworld_free(w);
 }
-
-// ------------------------------------------------------------------------------- ini/settings
 
 static void testIniAndSettings() {
 	Ini ini;
@@ -225,8 +202,8 @@ static void testIniAndSettings() {
 	NEAR(s.sim[14], 1800, 0);
 	float def[ffi::SIM_CONFIG_FLOATS];
 	api.default_config(def);
-	CHECK(s.sim[1] == def[1]);  // the shipped ini's printed defaults read back bit-exact
-	CHECK(s.sim[10] == 0);      // UnlimitedBoost = off
+	CHECK(s.sim[1] == def[1]);
+	CHECK(s.sim[10] == 0);
 	NEAR(s.camera[0], 105, 0);
 	CHECK(Settings::presetIndex("Psyclops") == 6);
 
@@ -235,10 +212,8 @@ static void testIniAndSettings() {
 	in.pad.buttons = pad::A;
 	CHECK(s.bindings.held(Action::Jump, in));
 	in.pad.buttons = pad::B;
-	CHECK(!s.bindings.held(Action::Boost, in));  // unbound on the pad by "Boost="
+	CHECK(!s.bindings.held(Action::Boost, in));
 
-	// The shipped RLCar.ini must parse to exactly the core's defaults for [Car] (apart from the
-	// documented UnlimitedBoost = 1).
 	Ini shipped;
 	if (shipped.loadFile("gta/RLCar.ini") || shipped.loadFile("../RLCar.ini") || shipped.loadFile("RLCar.ini")) {
 		Settings d;
@@ -258,29 +233,26 @@ static void testBindings() {
 	s.keys[size_t(Bindings::keyCode("W"))] = true;
 	DriveInput d = b.drive(s);
 	NEAR(d.throttle, 1, 0);
-	NEAR(d.pitch, -1, 0);  // W is also Pitch Down
+	NEAR(d.pitch, -1, 0);
 	s = {};
 	s.pad.connected = true;
 	s.pad.rt = 0.4f;
 	s.pad.lx = 1.0f;
-	s.pad.ly = 1.0f;  // stick forward
+	s.pad.ly = 1.0f;
 	d = b.drive(s);
-	NEAR(d.throttle, 0.4, 1e-6);  // triggers are analog
+	NEAR(d.throttle, 0.4, 1e-6);
 	NEAR(d.steer, 1, 1e-6);
 	NEAR(d.yaw, 1, 1e-6);
-	NEAR(d.pitch, -1, 1e-6);  // forward = nose down
-	// Free air roll on Square: the yaw input rolls instead, and Square is also powerslide.
+	NEAR(d.pitch, -1, 1e-6);
 	s.pad.buttons = pad::X;
 	d = b.drive(s);
 	NEAR(d.yaw, 0, 0);
 	NEAR(d.roll, 1, 1e-6);
 	CHECK(d.handbrake);
-	// Directional air roll.
 	s = {};
 	s.pad.connected = true;
 	s.pad.buttons = pad::LB;
 	NEAR(b.drive(s).roll, -1, 0);
-	// Chord: LS+RS becomes the car, LS alone does not.
 	s.pad.buttons = pad::LS;
 	CHECK(!b.held(Action::BecomeCar, s));
 	s.pad.buttons = pad::LS | pad::RS;

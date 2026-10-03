@@ -7,9 +7,7 @@
 //!
 //! World geometry comes from a [`BoxWorld`]: the host hands over the axis-aligned collision
 //! boxes around the car (for a voxel game, the blocks), and the world turns them into a seamless
-//! surface. A world can be shared by any number of cars. Hosts with a query-based collision API
-//! (GTA V's shape tests, ...) use a [`CallbackWorld`] instead: the core calls back into the host
-//! for each wheel raycast and body contact query (the `*_cb` functions).
+//! surface. A world can be shared by any number of cars.
 //!
 //! All functions accept null handles and return a neutral value for them. Nothing here is
 //! thread-safe: a handle must only be used from one thread at a time.
@@ -278,11 +276,6 @@ pub unsafe extern "C" fn rlcar_car_advance(
     guard(0, || c.stepper.advance(frame_dt, &ctl, w))
 }
 
-// ----------------------------------------------------------------------------- callback world
-
-/// A world that asks the host through callbacks (see [`CallbackWorld`]); any callback may be
-/// null (that query then finds nothing). `user` is passed back unchanged to every callback.
-/// Free with [`rlcar_cbworld_free`].
 #[unsafe(no_mangle)]
 pub extern "C" fn rlcar_cbworld_new(
     user: *mut c_void,
@@ -293,8 +286,7 @@ pub extern "C" fn rlcar_cbworld_new(
     Box::into_raw(Box::new(CallbackWorld { user, raycast, box_contacts, sphere_contacts }))
 }
 
-/// # Safety
-/// `world` is null or a pointer from [`rlcar_cbworld_new`] not freed yet.
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rlcar_cbworld_free(world: *mut CallbackWorld) {
     if !world.is_null() {
@@ -302,11 +294,7 @@ pub unsafe extern "C" fn rlcar_cbworld_free(world: *mut CallbackWorld) {
     }
 }
 
-/// [`rlcar_car_step`] against a [`CallbackWorld`]. The callbacks run on this thread, inside the call.
-///
-/// # Safety
-/// `car` and `world` are valid handles or null (a null world means empty space); the callbacks
-/// must be safe to call with the world's `user` pointer.
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rlcar_car_step_cb(
     car: *mut Car,
@@ -327,10 +315,7 @@ pub unsafe extern "C" fn rlcar_car_step_cb(
     }
 }
 
-/// [`rlcar_car_advance`] against a [`CallbackWorld`].
-///
-/// # Safety
-/// As [`rlcar_car_step_cb`].
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rlcar_car_advance_cb(
     car: *mut Car,
@@ -351,22 +336,6 @@ pub unsafe extern "C" fn rlcar_car_advance_cb(
     })
 }
 
-// ------------------------------------------------------------------------------- sim config
-
-/// Floats read by [`rlcar_car_set_config`] and written by [`rlcar_car_config`] /
-/// [`rlcar_default_config`] (Rocket League's values are the defaults; see `rl_car_core::SimConfig`):
-///
-/// | index | content |
-/// |---|---|
-/// | 0 | gravity Z (uu/s², -650) |
-/// | 1 / 2 | boost acceleration on the ground / in the air (uu/s²) |
-/// | 3 | boost used per second (tank is 100) |
-/// | 4 | jump hold acceleration (uu/s²) |
-/// | 5 | jump / double jump impulse (uu/s) |
-/// | 6 / 7 | car-world friction / restitution |
-/// | 8 / 9 / 10 | unlimited flips / double jumps / boost (0 or 1) |
-/// | 11 / 12 / 13 | boost recharge on (0 or 1), per second, delay (s) |
-/// | 14 | top speed (uu/s, 2300) |
 pub const SIM_CONFIG_FLOATS: usize = 15;
 
 fn config_to(c: &SimConfig, out: &mut [f32]) {
@@ -412,10 +381,7 @@ fn config_from(f: &[f32]) -> SimConfig {
     }
 }
 
-/// Writes Rocket League's defaults as [`SIM_CONFIG_FLOATS`] floats.
-///
-/// # Safety
-/// `out` points to [`SIM_CONFIG_FLOATS`] writable floats (or is null).
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rlcar_default_config(out: *mut f32) {
     if !out.is_null() {
@@ -423,10 +389,7 @@ pub unsafe extern "C" fn rlcar_default_config(out: *mut f32) {
     }
 }
 
-/// Writes the car's current config as [`SIM_CONFIG_FLOATS`] floats.
-///
-/// # Safety
-/// `car` is null or valid; `out` points to [`SIM_CONFIG_FLOATS`] writable floats.
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rlcar_car_config(car: *const Car, out: *mut f32) {
     if let (Some(c), false) = (unsafe { car.as_ref() }, out.is_null()) {
@@ -434,12 +397,7 @@ pub unsafe extern "C" fn rlcar_car_config(car: *const Car, out: *mut f32) {
     }
 }
 
-/// Replaces the car's config ([`SIM_CONFIG_FLOATS`] floats; non-finite values keep the default).
-/// Takes effect on the next tick. Turning unlimited boost on fills the tank, like
-/// [`rlcar_car_set_unlimited_boost`].
-///
-/// # Safety
-/// `car` is null or valid; `config` points to [`SIM_CONFIG_FLOATS`] readable floats.
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rlcar_car_set_config(car: *mut Car, config: *const f32) {
     let Some(c) = (unsafe { car.as_mut() }) else { return };
@@ -859,7 +817,6 @@ mod tests {
             }
             assert_eq!((*a).stepper.current, (*b).stepper.current);
 
-            // A lower top speed caps the car; non-finite values keep the default.
             let mut slow = d;
             slow[14] = 1000.0;
             slow[0] = f32::NAN;
@@ -876,7 +833,6 @@ mod tests {
 
     #[test]
     fn c_api_callback_world_matches_box_world() {
-        // Host callbacks that forward to a BoxWorld: same results as passing the BoxWorld itself.
         unsafe extern "C" fn ray(u: *mut c_void, o: *const f32, d: *const f32, max: f32, hit: *mut RlRayHit) -> u32 {
             let w = unsafe { &*(u as *const BoxWorld) };
             let (o, d) = unsafe { (read_v(o), read_v(d)) };

@@ -1,17 +1,7 @@
-//! [`CollisionWorld`] backed by host callbacks, for engines whose collision is a query API rather
-//! than a list of boxes (GTA V's shape tests, Unity/Unreal raycasts, ...).
-//!
-//! The host passes C function pointers; every query reaches it in Rocket League space and units,
-//! so the host converts at its side. Callbacks run synchronously on the thread that steps the car.
-//!
-//! Determinism: contacts are stable-sorted by surface id after each query, so the result does not
-//! depend on the order a host happens to find surfaces in. Within one surface the host's order is
-//! kept (the core only uses the deepest point per surface anyway).
 
 use rl_car_core::{CollisionWorld, Contact, Mat3, Obb, RayHit, Vec3};
 use std::ffi::c_void;
 
-/// A ray hit as written by the host's raycast callback.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RlRayHit {
@@ -20,7 +10,6 @@ pub struct RlRayHit {
     pub normal: [f32; 3],
 }
 
-/// One body contact as written by the host (see [`Contact`]).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RlContact {
@@ -30,7 +19,6 @@ pub struct RlContact {
     pub surface: u32,
 }
 
-/// The car hitbox handed to the host: centre, axes (3 columns: forward, right, up) and half size.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RlObb {
@@ -39,19 +27,13 @@ pub struct RlObb {
     pub half_extents: [f32; 3],
 }
 
-/// `origin` and `dir` point to 3 floats (`dir` is unit length). Returns 1 and fills `hit` for the
-/// closest hit with `distance` in `[0, max_dist]`, or returns 0.
 pub type RaycastFn = unsafe extern "C" fn(user: *mut c_void, origin: *const f32, dir: *const f32, max_dist: f32, hit: *mut RlRayHit) -> u32;
 
-/// Writes up to `cap` contacts (the deepest point per touching surface, within `margin`) and
-/// returns how many were written.
 pub type BoxContactsFn = unsafe extern "C" fn(user: *mut c_void, obb: *const RlObb, margin: f32, out: *mut RlContact, cap: u32) -> u32;
 
-/// Sphere version of [`BoxContactsFn`] (for the ball). `center` points to 3 floats.
 pub type SphereContactsFn =
     unsafe extern "C" fn(user: *mut c_void, center: *const f32, radius: f32, margin: f32, out: *mut RlContact, cap: u32) -> u32;
 
-/// Most contacts a single query may return.
 pub const MAX_CONTACTS: usize = 64;
 
 #[derive(Clone, Copy, Debug)]
@@ -125,7 +107,6 @@ mod tests {
     use super::*;
     use rl_car_core::{CarState, Controls, HitboxPreset, PlaneWorld, TICK_DT, step};
 
-    // A C-style host that forwards to a Rust world through `user`.
     unsafe extern "C" fn ray_cb(user: *mut c_void, o: *const f32, d: *const f32, max: f32, hit: *mut RlRayHit) -> u32 {
         let w = unsafe { &*(user as *const PlaneWorld) };
         let (o, d) = unsafe { (std::slice::from_raw_parts(o, 3), std::slice::from_raw_parts(d, 3)) };
@@ -142,7 +123,6 @@ mod tests {
         let w = unsafe { &*(user as *const PlaneWorld) };
         let mut v = Vec::new();
         w.box_contacts(&obb_from_c(unsafe { &*obb }), margin, &mut v);
-        // Hand them back in reverse to check that the order is normalised.
         let out = unsafe { std::slice::from_raw_parts_mut(out, cap as usize) };
         let n = v.len().min(cap as usize);
         for (slot, c) in out.iter_mut().zip(v.iter().rev()) {
@@ -155,8 +135,6 @@ mod tests {
         CallbackWorld { user: w as *const _ as *mut c_void, raycast: Some(ray_cb), box_contacts: Some(box_cb), sphere_contacts: None }
     }
 
-    /// Drives through every kind of contact the arena box has (floor, wall climb, ceiling,
-    /// landing on the roof), comparing every tick bit for bit.
     #[test]
     fn callback_world_is_bit_identical_to_plane_world() {
         let planes = PlaneWorld::soccar_box();

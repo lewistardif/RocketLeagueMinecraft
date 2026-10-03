@@ -1,16 +1,3 @@
-// The one conversion layer between Rocket League space (the physics core) and GTA V.
-//
-//                     Rocket League (core)        GTA V
-//   unit              uu (~1 cm)                  metre
-//   up                +Z                          +Z
-//   handedness        left-handed                 right-handed
-//   car local axes    forward +X, right +Y, up +Z right +X, forward +Y, up +Z
-//
-// Mapping: gta = origin + (rl.x, -rl.y, rl.z) * scale / 100. Mirroring Y is a reflection, which is
-// what turns the left-handed basis into GTA's right-handed one, so "turn right" stays "turn right"
-// (pinned by a test). `scale` is the [Scale] WorldScale setting: physics always runs in uu, only
-// the size of everything in GTA changes. Positions are relative to a movable origin so the core's
-// 32-bit floats stay precise anywhere on the map.
 #pragma once
 #include <cmath>
 
@@ -25,8 +12,8 @@ struct Quat {
 };
 
 struct Frame {
-	V3 origin;          // GTA metres
-	double scale = 1.0;  // GTA metres per metre of Rocket League space (uu / 100)
+	V3 origin;
+	double scale = 1.0;
 
 	double k() const { return scale / 100.0; }
 
@@ -36,12 +23,10 @@ struct Frame {
 		out[1] = float(-(g.y - origin.y) / k());
 		out[2] = float((g.z - origin.z) / k());
 	}
-	// Lengths (uu <-> metres).
 	double lenToGta(double uu) const { return uu * k(); }
 	double lenToRl(double m) const { return m / k(); }
 };
 
-// Directions and normals (no scale, no origin).
 inline V3 dirToGta(const float* d) { return {d[0], -d[1], d[2]}; }
 inline void dirToRl(V3 g, float* out) {
 	out[0] = float(g.x);
@@ -49,11 +34,8 @@ inline void dirToRl(V3 g, float* out) {
 	out[2] = float(g.z);
 }
 
-// Car orientation (RL columns forward, right, up: 9 floats) to the GTA entity quaternion
-// (entity axes right +X, forward +Y, up +Z).
 inline Quat carRotToGta(const float* cols) {
 	V3 f = dirToGta(cols), r = dirToGta(cols + 3), u = dirToGta(cols + 6);
-	// Rotation matrix with columns (right, forward, up).
 	double m00 = r.x, m01 = f.x, m02 = u.x;
 	double m10 = r.y, m11 = f.y, m12 = u.y;
 	double m20 = r.z, m21 = f.z, m22 = u.z;
@@ -89,23 +71,32 @@ inline Quat carRotToGta(const float* cols) {
 
 constexpr double kPi = 3.14159265358979323846;
 
-// GTA heading (degrees; 0 = north +Y, increasing counter-clockwise) to the RL yaw (radians) of a car
-// facing the same way. GTA forward = (-sin h, cos h); RL forward (cos y, sin y) maps to (cos y, -sin y).
 inline float headingToRlYaw(double headingDeg) {
 	double h = headingDeg * kPi / 180.0;
 	return float(std::atan2(-std::cos(h), -std::sin(h)));
 }
 
-// GTA heading (degrees) of a GTA direction.
+inline V3 spinToGta(const float* w) { return {-w[0], w[1], -w[2]}; }
+
+inline Quat spin(Quat q, V3 w, double dt) {
+	double ang = std::sqrt(w.x * w.x + w.y * w.y + w.z * w.z) * dt;
+	if (ang < 1e-9) return q;
+	double s = std::sin(ang * 0.5) / (ang / dt), c = std::cos(ang * 0.5);
+	double ax = w.x * s, ay = w.y * s, az = w.z * s;
+	double x = c * q.x + ax * q.w + ay * q.z - az * q.y;
+	double y = c * q.y - ax * q.z + ay * q.w + az * q.x;
+	double z = c * q.z + ax * q.y - ay * q.x + az * q.w;
+	double ww = c * q.w - ax * q.x - ay * q.y - az * q.z;
+	double n = std::sqrt(x * x + y * y + z * z + ww * ww);
+	return {float(x / n), float(y / n), float(z / n), float(ww / n)};
+}
+
 inline double headingOf(V3 d) { return std::atan2(-d.x, d.y) * 180.0 / kPi; }
 
-// Camera: RL axes (columns forward, right, up) to a GTA camera rotation in degrees
-// (x = pitch, y = roll, z = yaw; rotation order 2).
 inline V3 cameraRotToGta(const float* cols) {
 	V3 f = dirToGta(cols), u = dirToGta(cols + 6);
 	double pitch = std::asin(f.z < -1 ? -1 : f.z > 1 ? 1 : f.z) * 180.0 / kPi;
 	double yaw = headingOf(f);
-	// Level right/up for this view direction; roll is the up vector's angle from level up.
 	V3 lr{f.y, -f.x, 0};
 	double n = std::sqrt(lr.x * lr.x + lr.y * lr.y);
 	double roll = 0;
@@ -119,4 +110,4 @@ inline V3 cameraRotToGta(const float* cols) {
 	return {pitch, roll, yaw};
 }
 
-}  // namespace space
+}

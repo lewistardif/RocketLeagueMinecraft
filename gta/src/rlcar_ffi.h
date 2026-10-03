@@ -1,15 +1,16 @@
-// The rl_car_ffi C ABI (crates/rl_car_ffi/src/lib.rs), loaded at run time from the plugin's folder.
 #pragma once
 #include <cstdint>
 #include <string>
 
 namespace ffi {
 
-constexpr uint32_t ABI_VERSION = 4;
+constexpr uint32_t ABI_VERSION = 5;
 constexpr int POSE_FLOATS = 40;
 constexpr int CAMERA_SETTINGS_FLOATS = 8;
 constexpr int CAMERA_VIEW_FLOATS = 17;
 constexpr int SIM_CONFIG_FLOATS = 15;
+constexpr int BALL_CONFIG_FLOATS = 10;
+constexpr int BALL_POSE_FLOATS = 9;
 
 namespace flags {
 constexpr uint32_t ON_GROUND = 1u << 0, BOOSTING = 1u << 1, SUPERSONIC = 1u << 2, HAS_FLIP_OR_JUMP = 1u << 3,
@@ -19,6 +20,7 @@ namespace buttons {
 constexpr uint32_t JUMP = 1u << 0, BOOST = 1u << 1, HANDBRAKE = 1u << 2;
 }
 constexpr uint32_t CAMERA_REAR_VIEW = 1u << 0;
+constexpr uint32_t CAMERA_BALL_CAM = 1u << 1;
 
 struct RayHit {
 	float distance;
@@ -33,12 +35,13 @@ struct Contact {
 };
 struct Obb {
 	float center[3];
-	float axes[9];  // columns: forward, right, up
+	float axes[9];
 	float half_extents[3];
 };
 
 struct Car;
 struct World;
+struct Ball;
 using RaycastFn = uint32_t (*)(void* user, const float* origin, const float* dir, float maxDist, RayHit* hit);
 using BoxContactsFn = uint32_t (*)(void* user, const Obb* obb, float margin, Contact* out, uint32_t cap);
 using SphereContactsFn = uint32_t (*)(void* user, const float* center, float radius, float margin, Contact* out, uint32_t cap);
@@ -68,10 +71,20 @@ struct Api {
 	uint32_t (*camera_update)(void*, const Car*, float alpha, float dt, const float* settings, float lookRight, float lookUp,
 	                          uint32_t flags, float* out);
 	uint32_t (*camera_preset)(uint32_t index, float* out);
+	Ball* (*ball_new)();
+	void (*ball_free)(Ball*);
+	void (*ball_reset)(Ball*, const float* pos, const float* vel, const float* angVel);
+	void (*ball_translate)(Ball*, const float* delta);
+	void (*default_ball_config)(float*);
+	void (*ball_config)(const Ball*, float*);
+	void (*ball_set_config)(Ball*, const float*);
+	uint32_t (*ball_pose)(const Ball*, float alpha, float* out);
+	uint32_t (*car_ball_touch)(Car*, float* out);
+	uint32_t (*scene_advance_cb)(Car*, Ball*, const World*, double dt, float, float, float, float, float, uint32_t);
+	uint32_t (*camera_update_ball)(void*, const Car*, const Ball*, float alpha, float dt, const float* settings, float lookRight,
+	                               float lookUp, uint32_t flags, float* out);
 };
 
-// Loads the library and every symbol. Returns false and fills `error` if anything is missing or
-// the ABI version does not match.
 bool load(const std::string& path, Api& api, std::string& error);
 
-}  // namespace ffi
+}

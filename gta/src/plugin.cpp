@@ -1,9 +1,3 @@
-// RL Car for GTA V: a Script Hook V plugin that drives this repository's Rust core
-// (crates/rl_car_core) through its C ABI (crates/rl_car_ffi), like the Minecraft mod.
-//
-// The core simulates the car at a fixed 120 Hz against GTA's collision (gta_probe.cpp); a stock
-// GTA vehicle (or a converted Rocket League model) is drawn at the interpolated pose with GTA's
-// own physics frozen. The camera is the core's Rocket League car camera.
 #include "natives.h"
 #include "ini.h"
 #include "probe_world.h"
@@ -23,8 +17,8 @@ bool gtaProbe(const space::Frame& frame, int flags, Entity ignore, const float* 
 namespace {
 
 HMODULE g_module;
-std::string g_dir;  // folder of RLCar.asi
-std::string g_dataDir;  // <g_dir>\RLCar
+std::string g_dir;
+std::string g_dataDir;
 ffi::Api g_api{};
 bool g_apiOk = false;
 std::string g_apiError;
@@ -43,8 +37,6 @@ void log(const char* fmt, ...) {
 	fputc('\n', f);
 	fclose(f);
 }
-
-// ------------------------------------------------------------------------------------- input
 
 using XInputGetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
 XInputGetStateFn g_xinput = nullptr;
@@ -82,7 +74,6 @@ InputState readInput() {
 	return s;
 }
 
-// Edge detection for one-shot actions.
 struct Edges {
 	bool prev[size_t(Action::Count)] = {};
 	bool now[size_t(Action::Count)] = {};
@@ -94,8 +85,6 @@ struct Edges {
 	}
 	bool pressed(Action a) const { return now[size_t(a)] && !prev[size_t(a)]; }
 } g_edges;
-
-// ------------------------------------------------------------------------------------ helpers
 
 void drawText(const char* text, float x, float y, float scale, int r = 255, int g = 255, int b = 255, bool centre = false) {
 	HUD::SET_TEXT_FONT(4);
@@ -125,14 +114,19 @@ void help(const char* text) {
 
 space::V3 v3(const Vector3& v) { return {v.x, v.y, v.z}; }
 
+bool loadAny(Hash h) {
+	if (!STREAMING::IS_MODEL_IN_CDIMAGE(h) || !STREAMING::IS_MODEL_VALID(h)) return false;
+	STREAMING::REQUEST_MODEL(h);
+	for (int i = 0; i < 200 && !STREAMING::HAS_MODEL_LOADED(h); i++) WAIT(0);
+	return STREAMING::HAS_MODEL_LOADED(h) != 0;
+}
+
 bool loadModel(Hash h) {
 	if (!STREAMING::IS_MODEL_IN_CDIMAGE(h) || !STREAMING::IS_MODEL_A_VEHICLE(h)) return false;
 	STREAMING::REQUEST_MODEL(h);
 	for (int i = 0; i < 200 && !STREAMING::HAS_MODEL_LOADED(h); i++) WAIT(0);
 	return STREAMING::HAS_MODEL_LOADED(h) != 0;
 }
-
-// --------------------------------------------------------------------------------------- car
 
 struct RlCar {
 	ffi::Car* car = nullptr;
@@ -144,16 +138,84 @@ struct RlCar {
 	Blip blip = 0;
 	Cam cam = 0;
 	int preset = 0, team = 0;
-	float modelLift = 0;  // metres from the physics car origin to the drawn model's origin, along car up
+	float modelLift = 0;
 	float pose[ffi::POSE_FLOATS] = {};
 	uint32_t flags = 0;
 	bool rearView = false;
 	bool driving = false;
-	DWORD exitingUntil = 0;  // GetTickCount() until the get-out animation is over
+	DWORD exitingUntil = 0;
+	ffi::Ball* ball = nullptr;
+	Object ballProp = 0;
+	float ballPropLift = 0;
+	float ballPose[ffi::BALL_POSE_FLOATS] = {};
+	space::Quat ballRot;
+	bool ballCam = false;
 
 	~RlCar() { destroy(); }
 
+	void removeBall() {
+		if (ballProp && ENTITY::DOES_ENTITY_EXIST(ballProp)) {
+			ENTITY::SET_ENTITY_AS_MISSION_ENTITY(ballProp, TRUE, TRUE);
+			ENTITY::DELETE_ENTITY(&ballProp);
+		}
+		ballProp = 0;
+		if (ball) g_api.ball_free(ball), ball = nullptr;
+		ballCam = false;
+	}
+
+	bool spawnBall() {
+		if (!ball) ball = g_api.ball_new();
+		g_api.ball_set_config(ball, g_settings.ball);
+		if (!ballProp || !ENTITY::DOES_ENTITY_EXIST(ballProp)) {
+			Hash model = 0;
+			for (const std::string& name : {g_settings.ballModel, std::string("prop_beachball_02")}) {
+				Hash h = MISC::GET_HASH_KEY(name.c_str());
+				if (loadAny(h)) {
+					model = h;
+					break;
+				}
+			}
+			if (!model) {
+				removeBall();
+				return false;
+			}
+			space::V3 p = position();
+			ballProp = OBJECT::CREATE_OBJECT_NO_OFFSET(model, float(p.x), float(p.y), float(p.z) + 5, FALSE, TRUE, FALSE, 0);
+			Vector3 mn{}, mx{};
+			MISC::GET_MODEL_DIMENSIONS(model, &mn, &mx);
+			STREAMING::SET_MODEL_AS_NO_LONGER_NEEDED(model);
+			if (!ballProp) {
+				removeBall();
+				return false;
+			}
+			ballPropLift = -(mn.z + mx.z) * 0.5f;
+			ENTITY::SET_ENTITY_AS_MISSION_ENTITY(ballProp, TRUE, TRUE);
+			ENTITY::FREEZE_ENTITY_POSITION(ballProp, TRUE);
+			ENTITY::SET_ENTITY_COLLISION(ballProp, FALSE, FALSE);
+		}
+		float fx = pose[3], fy = pose[4], fl = std::sqrt(fx * fx + fy * fy);
+		if (fl < 1e-3f) fx = 1, fy = 0, fl = 1;
+		float pos[3] = {pose[0] + fx / fl * 800, pose[1] + fy / fl * 800, pose[2] + 250};
+		float vel[3] = {0, 0, -1};
+		g_api.ball_reset(ball, pos, vel, nullptr);
+		ballRot = {};
+		ballCam = g_settings.ballCamOnSpawn;
+		return true;
+	}
+
+	void applyBallPose(float alpha, float dt) {
+		if (!ball || !ballProp) return;
+		g_api.ball_pose(ball, alpha, ballPose);
+		ballRot = space::spin(ballRot, space::spinToGta(ballPose + 6), dt);
+		space::V3 p = frame.toGta(ballPose);
+		ENTITY::SET_ENTITY_COORDS_NO_OFFSET(ballProp, float(p.x), float(p.y), float(p.z) + ballPropLift, FALSE, FALSE, FALSE);
+		ENTITY::SET_ENTITY_QUATERNION(ballProp, ballRot.x, ballRot.y, ballRot.z, ballRot.w);
+		float dx = ballPose[0] - pose[0], dy = ballPose[1] - pose[1], dz = ballPose[2] - pose[2];
+		if (dx * dx + dy * dy + dz * dz > 60000.0f * 60000.0f) removeBall();
+	}
+
 	void destroy() {
+		removeBall();
 		if (cam) {
 			CAMERA::RENDER_SCRIPT_CAMS(FALSE, FALSE, 0, TRUE, FALSE, 0);
 			CAMERA::DESTROY_CAM(cam, FALSE);
@@ -171,7 +233,6 @@ struct RlCar {
 		if (car) g_api.car_free(car), car = nullptr;
 	}
 
-	// Creates the car resting on the ground at `at` (GTA metres) facing `heading` (degrees).
 	bool spawn(space::V3 at, double heading, int presetIndex, int teamIndex) {
 		preset = presetIndex;
 		team = teamIndex;
@@ -185,7 +246,7 @@ struct RlCar {
 		STREAMING::SET_MODEL_AS_NO_LONGER_NEEDED(model);
 		if (!veh) return false;
 		ENTITY::SET_ENTITY_AS_MISSION_ENTITY(veh, TRUE, TRUE);
-		ENTITY::FREEZE_ENTITY_POSITION(veh, TRUE);  // the core moves it, not GTA
+		ENTITY::FREEZE_ENTITY_POSITION(veh, TRUE);
 		ENTITY::SET_ENTITY_INVINCIBLE(veh, TRUE, FALSE);
 		ENTITY::SET_ENTITY_PROOFS(veh, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE);
 		VEHICLE::SET_VEHICLE_CAN_BE_VISIBLY_DAMAGED(veh, FALSE);
@@ -197,7 +258,6 @@ struct RlCar {
 			VEHICLE::SET_VEHICLE_CUSTOM_PRIMARY_COLOUR(veh, 255, 110, 10);
 		VEHICLE::SET_VEHICLE_CUSTOM_SECONDARY_COLOUR(veh, 25, 25, 25);
 
-		// The drawn model's wheels sit on the ground when the physics car rests (origin 17 uu up).
 		Vector3 mn{}, mx{};
 		MISC::GET_MODEL_DIMENSIONS(model, &mn, &mx);
 		frame.scale = g_settings.worldScale;
@@ -215,7 +275,6 @@ struct RlCar {
 		return true;
 	}
 
-	// Physics origin at `at` (GTA metres); the car is put a little above, upright, at rest.
 	void placeAt(space::V3 at, double heading) {
 		frame.origin = at;
 		float pos[3] = {0, 0, 40};
@@ -224,7 +283,6 @@ struct RlCar {
 		g_api.camera_reset(camera);
 	}
 
-	// Keeps the core's coordinates small: re-centre the origin on the car when it gets far away.
 	void recentre() {
 		float* p = pose;
 		if (std::fabs(p[0]) < 20000 && std::fabs(p[1]) < 20000 && std::fabs(p[2]) < 20000) return;
@@ -232,6 +290,7 @@ struct RlCar {
 		frame.origin = frame.toGta(p);
 		g_api.car_translate(car, d);
 		g_api.camera_translate(camera, d);
+		if (ball) g_api.ball_translate(ball, d);
 		probe->forget();
 	}
 
@@ -257,7 +316,7 @@ struct RlCar {
 std::unique_ptr<RlCar> g_car;
 int g_menuIndex = 0;
 bool g_menuOpen = false;
-DWORD g_orderAt = 0;  // GetTickCount() when an ordered car arrives (0 = none pending)
+DWORD g_orderAt = 0;
 
 bool loadSettings() {
 	Ini ini;
@@ -266,6 +325,7 @@ bool loadSettings() {
 	if (g_car && g_car->car) {
 		g_api.car_set_config(g_car->car, g_settings.sim);
 		g_car->applyWorldSettings();
+		if (g_car->ball) g_api.ball_set_config(g_car->ball, g_settings.ball);
 	}
 	return found;
 }
@@ -277,7 +337,6 @@ void putPlayerIn(RlCar& c) {
 	g_api.camera_reset(c.camera);
 }
 
-// Spawns (or moves) the car under the player and puts them in it.
 void becomeCar() {
 	Ped me = PLAYER::PLAYER_PED_ID();
 	if (g_car && g_car->car) {
@@ -296,7 +355,6 @@ void becomeCar() {
 	putPlayerIn(*g_car);
 }
 
-// The Mechanic brings the car to the nearest road and marks it on the map.
 void orderCar() {
 	notify("Your Rocket League car is on its way.", "Mechanic");
 	g_orderAt = GetTickCount() + 4000;
@@ -318,15 +376,13 @@ void deliverOrder() {
 		return;
 	}
 	g_car->blip = HUD::ADD_BLIP_FOR_ENTITY(g_car->veh);
-	HUD::SET_BLIP_SPRITE(g_car->blip, 225);  // car
+	HUD::SET_BLIP_SPRITE(g_car->blip, 225);
 	HUD::SET_BLIP_COLOUR(g_car->blip, g_settings.team == 0 ? 3 : 17);
 	notify("Your car is parked nearby. Press F (Y) next to it to get in.", "Mechanic");
 }
 
-// ---------------------------------------------------------------------------------------- menu
-
-const char* kMenu[] = {"Become the car", "Order from the Mechanic", "Hitbox", "Team", "Unlimited boost", "Remove the car",
-                       "Reload RLCar.ini", "Close"};
+const char* kMenu[] = {"Become the car", "Order from the Mechanic", "Hitbox", "Team", "Unlimited boost", "Spawn the ball",
+                       "Remove the ball", "Remove the car", "Reload RLCar.ini", "Close"};
 constexpr int kMenuItems = int(sizeof(kMenu) / sizeof(kMenu[0]));
 
 void runMenu(const InputState& s) {
@@ -341,7 +397,7 @@ void runMenu(const InputState& s) {
 	if (edge(down, pd)) g_menuIndex = (g_menuIndex + 1) % kMenuItems;
 	int dir = edge(right, pr) ? 1 : edge(left, pl) ? -1 : 0;
 	bool select = edge(ok, pok);
-	PAD::DISABLE_CONTROL_ACTION(0, 172, TRUE);  // phone up / down
+	PAD::DISABLE_CONTROL_ACTION(0, 172, TRUE);
 	PAD::DISABLE_CONTROL_ACTION(0, 173, TRUE);
 	PAD::DISABLE_CONTROL_ACTION(0, 174, TRUE);
 	PAD::DISABLE_CONTROL_ACTION(0, 175, TRUE);
@@ -355,9 +411,13 @@ void runMenu(const InputState& s) {
 		switch (g_menuIndex) {
 			case 0: g_menuOpen = false; if (g_car) g_car.reset(); becomeCar(); break;
 			case 1: g_menuOpen = false; orderCar(); break;
-			case 5: g_car.reset(); break;
-			case 6: notify(loadSettings() ? "RLCar.ini reloaded" : "RLCar.ini not found, using defaults"); break;
-			case 7: g_menuOpen = false; break;
+			case 5:
+				if (g_car && g_car->car && g_settings.ballEnabled && !g_car->spawnBall()) notify("RL Car: could not create the ball");
+				break;
+			case 6: if (g_car) g_car->removeBall(); break;
+			case 7: g_car.reset(); break;
+			case 8: notify(loadSettings() ? "RLCar.ini reloaded" : "RLCar.ini not found, using defaults"); break;
+			case 9: g_menuOpen = false; break;
 		}
 	}
 	if (g_car && g_car->car && g_menuIndex == 4 && (dir || select)) g_api.car_set_config(g_car->car, g_settings.sim);
@@ -379,9 +439,6 @@ void runMenu(const InputState& s) {
 	}
 }
 
-// -------------------------------------------------------------------------------------- frame
-
-// GTA controls that would otherwise act while the car is driven (vehicle, weapon, phone, exit).
 void disableGtaDrivingControls() {
 	static const int kControls[] = {59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 80, 85, 86,
 	                                 87, 88, 89, 90, 99, 100, 101, 102, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113,
@@ -399,8 +456,8 @@ void updateCamera(RlCar& c, float alpha, float dt, const DriveInput& in) {
 		CAMERA::RENDER_SCRIPT_CAMS(TRUE, FALSE, 0, TRUE, FALSE, 0);
 	}
 	float view[ffi::CAMERA_VIEW_FLOATS];
-	uint32_t f = c.rearView ? ffi::CAMERA_REAR_VIEW : 0;
-	if (!g_api.camera_update(c.camera, c.car, alpha, dt, g_settings.camera, in.lookRight, in.lookUp, f, view)) return;
+	uint32_t f = (c.rearView ? ffi::CAMERA_REAR_VIEW : 0) | (c.ballCam && c.ball ? ffi::CAMERA_BALL_CAM : 0);
+	if (!g_api.camera_update_ball(c.camera, c.car, c.ball, alpha, dt, g_settings.camera, in.lookRight, in.lookUp, f, view)) return;
 	space::V3 p = c.frame.toGta(view);
 	space::V3 rot = space::cameraRotToGta(view + 3);
 	CAMERA::SET_CAM_COORD(c.cam, float(p.x), float(p.y), float(p.z));
@@ -424,6 +481,7 @@ void drawHud(const RlCar& c) {
 	snprintf(line, sizeof line, "%d", int(c.pose[18] + 0.5f));
 	drawText(line, 0.93f, 0.80f, 1.0f, 255, 170, 30, true);
 	drawText("BOOST", 0.93f, 0.86f, 0.35f, 255, 255, 255, true);
+	if (c.ball) drawText(c.ballCam ? "BALL CAM" : "CAR CAM", 0.93f, 0.77f, 0.35f, 255, 255, 255, true);
 	snprintf(line, sizeof line, "%.0f km/h%s", kmh, (c.flags & ffi::flags::SUPERSONIC) ? "  SUPERSONIC" : "");
 	drawText(line, 0.93f, 0.89f, 0.35f, 255, 255, 255, true);
 }
@@ -446,12 +504,11 @@ void tick() {
 	RlCar& c = *g_car;
 	inCar = PED::IS_PED_IN_VEHICLE(me, c.veh, FALSE) && GetTickCount() >= c.exitingUntil;
 
-	// Getting in: F / Y next to the parked car.
 	if (!inCar && !PED::IS_PED_IN_ANY_VEHICLE(me, TRUE) && GetTickCount() >= c.exitingUntil) {
 		space::V3 p = v3(ENTITY::GET_ENTITY_COORDS(me, TRUE)), q = c.position();
 		double d2 = (p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y) + (p.z - q.z) * (p.z - q.z);
 		if (d2 < 36) {
-			PAD::DISABLE_CONTROL_ACTION(0, 23, TRUE);  // GTA's own enter vehicle
+			PAD::DISABLE_CONTROL_ACTION(0, 23, TRUE);
 			help("Press ~INPUT_ENTER~ to drive the Rocket League car.");
 			if (PAD::IS_DISABLED_CONTROL_JUST_PRESSED(0, 23)) {
 				putPlayerIn(c);
@@ -472,6 +529,8 @@ void tick() {
 			inCar = false;
 			drive = {};
 		}
+		if (g_edges.pressed(Action::SpawnBall) && g_settings.ballEnabled && !c.spawnBall()) notify("RL Car: could not create the ball");
+		if (g_edges.pressed(Action::BallCam) && c.ball) c.ballCam = !c.ballCam;
 		if (g_edges.pressed(Action::ResetCar)) {
 			space::V3 p = c.position();
 			c.placeAt({p.x, p.y, p.z}, space::headingOf(space::dirToGta(c.pose + 3)));
@@ -488,10 +547,14 @@ void tick() {
 	if (dt > 0 && !HUD::IS_PAUSE_MENU_ACTIVE()) {
 		uint32_t b = (drive.jump ? ffi::buttons::JUMP : 0) | (drive.boost ? ffi::buttons::BOOST : 0) |
 		             (drive.handbrake ? ffi::buttons::HANDBRAKE : 0);
-		g_api.car_advance_cb(c.car, c.world, dt, drive.throttle, drive.steer, drive.pitch, drive.yaw, drive.roll, b);
+		if (c.ball)
+			g_api.scene_advance_cb(c.car, c.ball, c.world, dt, drive.throttle, drive.steer, drive.pitch, drive.yaw, drive.roll, b);
+		else
+			g_api.car_advance_cb(c.car, c.world, dt, drive.throttle, drive.steer, drive.pitch, drive.yaw, drive.roll, b);
 	}
 	float alpha = g_api.car_alpha(c.car);
 	c.applyPose(alpha);
+	c.applyBallPose(alpha, HUD::IS_PAUSE_MENU_ACTIVE() ? 0.0f : dt);
 	c.recentre();
 
 	if (inCar) {
@@ -522,7 +585,7 @@ void scriptMain() {
 	}
 }
 
-}  // namespace
+}
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
 	if (reason == DLL_PROCESS_ATTACH) {

@@ -1,5 +1,3 @@
-// The only place that asks GTA about its world: one synchronous line-of-sight shape test per
-// segment, in Rocket League space at the boundary (converted through space::Frame).
 #include "natives.h"
 #include "probe_world.h"
 #include "space.h"

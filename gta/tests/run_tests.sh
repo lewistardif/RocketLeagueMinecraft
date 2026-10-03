@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Builds rl_car_ffi and runs the plugin's unit tests with g++ (Linux, WSL or MSYS2).
 set -e
 cd "$(dirname "$0")/../.."
 cargo build -p rl_car_ffi --release

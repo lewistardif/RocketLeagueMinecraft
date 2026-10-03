@@ -9,10 +9,9 @@
 static const char* kNames[] = {"Throttle", "Reverse", "SteerRight", "SteerLeft", "PitchUp", "PitchDown", "YawRight",
                                "YawLeft", "AirRollRight", "AirRollLeft", "AirRoll", "Jump", "Boost", "Powerslide",
                                "RearCamera", "ResetCar", "ExitCar", "BecomeCar", "Menu", "ReloadConfig", "FireWeapon",
-                               "NextWeapon"};
+                               "NextWeapon", "SpawnBall", "BallCam"};
 static_assert(sizeof(kNames) / sizeof(kNames[0]) == size_t(Action::Count), "one name per action");
 
-// Defaults: keyboard and gamepad columns of Rocket League's (and the Minecraft mod's) table.
 struct Default {
 	Action a;
 	const char* keys;
@@ -30,6 +29,7 @@ static const Default kDefaults[] = {
 	{Action::ExitCar, "F", "BACK"},         {Action::BecomeCar, "F9", "LS+RS"},
 	{Action::Menu, "F7", ""},               {Action::ReloadConfig, "F10", ""},
 	{Action::FireWeapon, "LMB", "DUP"},     {Action::NextWeapon, "X", "DRIGHT"},
+	{Action::SpawnBall, "B", "DLEFT"},      {Action::BallCam, "C", "DDOWN"},
 };
 
 static std::string upper(std::string s) {
@@ -98,7 +98,6 @@ void Bindings::parse(Action a, const std::string& keys, const std::string& pads)
 	auto& p = pads_[size_t(a)];
 	k.clear();
 	p.clear();
-	// "," separates alternatives, "+" makes a chord.
 	for (auto& alt : split(keys, ',')) {
 		Chord c;
 		bool ok = true;
@@ -161,11 +160,9 @@ DriveInput Bindings::drive(const InputState& s) const {
 
 	d.throttle = std::clamp(v(Action::Throttle) - v(Action::Reverse), -1.0f, 1.0f);
 	d.steer = axis(v(Action::SteerRight) - v(Action::SteerLeft), lx);
-	// Stick forward = nose down, as in Rocket League (InvertPitch swaps it).
 	float pitch = axis(v(Action::PitchUp) - v(Action::PitchDown), -ly);
 	d.pitch = invertPitch ? -pitch : pitch;
 	float yaw = axis(v(Action::YawRight) - v(Action::YawLeft), lx);
-	// Air Roll held: the yaw input rolls instead (free air roll).
 	float roll = v(Action::AirRollRight) - v(Action::AirRollLeft);
 	if (held(Action::AirRoll, s)) {
 		roll += yaw;

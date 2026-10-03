@@ -1,11 +1,4 @@
 @echo off
-rem Builds RL Car for GTA V and stages it in gta\stage (nothing is written to your GTA folder):
-rem   1. rl_car_ffi.dll (Rust, release, x64) with cargo
-rem   2. RLCar.asi and the unit tests with CMake + MSVC (Visual Studio 2022 C++ tools)
-rem   3. runs the unit tests
-rem   4. copies RLCar.asi, RLCar\rl_car_ffi.dll and RLCar\RLCar.ini into gta\stage
-rem Needs Rust, CMake and the Script Hook V SDK (set SHV_SDK to the folder with inc\ and lib\).
-rem   gta\build.bat
 setlocal
 set "GTA=%~dp0"
 set "ROOT=%GTA%.."

@@ -1,12 +1,3 @@
-// Collision for the core built from segment probes (GTA V's synchronous LOS shape tests).
-//
-// GTA only answers "what does this segment hit first" synchronously, so:
-// * wheel raycasts are one probe each (exact GTA geometry);
-// * body (box) and ball (sphere) contacts come from a small set of planes found by probing
-//   outwards in 26 directions. Planes are cached and re-probed every few ticks or when the body
-//   moves, since the world is static. Each contact is checked with one more probe straight at the
-//   surface, so a plane is never extended past the real geometry's edge (driving off a ledge).
-// Everything is in Rocket League space (uu). Contacts are sorted by surface id (deterministic).
 #pragma once
 #include "rlcar_ffi.h"
 #include <cstdint>
@@ -19,7 +10,6 @@ struct ProbeHit {
 	int entity = 0;
 };
 
-// Probe the segment from -> to; return true and fill `hit` for the first hit.
 using ProbeFn = std::function<bool(const float* from, const float* to, ProbeHit& hit)>;
 
 class ProbeWorld {
@@ -30,31 +20,26 @@ public:
 	uint32_t boxContacts(const ffi::Obb& obb, float margin, ffi::Contact* out, uint32_t cap);
 	uint32_t sphereContacts(const float* center, float radius, float margin, ffi::Contact* out, uint32_t cap);
 
-	// C callbacks for rlcar_cbworld_new (user = this).
 	static uint32_t cbRaycast(void* user, const float* o, const float* d, float max, ffi::RayHit* hit);
 	static uint32_t cbBox(void* user, const ffi::Obb* obb, float margin, ffi::Contact* out, uint32_t cap);
 	static uint32_t cbSphere(void* user, const float* c, float r, float margin, ffi::Contact* out, uint32_t cap);
 
-	void forget() { boxCache_ = {}; sphereCache_ = {}; }  // after a teleport / origin shift
-	uint64_t probes = 0;  // statistics
+	void forget() { boxCache_ = {}; sphereCache_ = {}; }
+	uint64_t probes = 0;
 
-	// Tuning (uu / ticks).
-	float lookahead = 25.0f;     // how far past the body the outward probes reach
-	int refreshTicks = 4;        // re-probe at least this often
-	float refreshDistance = 15;  // ... or when the body moved this far
+	float lookahead = 25.0f;
+	float sphereLookahead = 60.0f;
+	int refreshTicks = 4;
+	float refreshDistance = 15;
 
-	// Virtual quarter-pipes where the ground meets a steep wall, so GTA's sharp building corners can
-	// be driven up like Rocket League's curved arena walls. Collision shape only; physics unchanged.
 	bool wallRamps = true;
-	float rampRadius = 320.0f;  // uu (the Bevy arena's quarter-pipes are 320 uu)
+	float rampRadius = 320.0f;
 
 	struct Plane {
 		float p[3], n[3];
 		uint32_t id;
 	};
 
-	// A quarter-pipe filling the concave corner between a floor and a wall plane: the solid is the
-	// part of the corner farther than `radius` from the axis line (point `x0`, direction `d`).
 	struct Ramp {
 		float x0[3], d[3], nFloor[3], nWall[3], wallPoint[3];
 		uint32_t id;
@@ -65,7 +50,7 @@ private:
 	struct Cache {
 		std::vector<Plane> planes;
 		std::vector<Ramp> ramps;
-		std::vector<ProbeHit> hits;  // raw hits of the last refresh (sphere edge contacts)
+		std::vector<ProbeHit> hits;
 		float at[3] = {1e30f, 1e30f, 1e30f};
 		int age = 1 << 30;
 	};
