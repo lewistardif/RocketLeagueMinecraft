@@ -41,6 +41,8 @@ pub struct SimConfig {
     pub recharge_boost_enabled: bool,
     pub recharge_boost_per_second: f32,
     pub recharge_boost_delay: f32,
+    /// Speed cap (uu/s). Rocket League: 2300.
+    pub car_max_speed: f32,
 }
 
 impl Default for SimConfig {
@@ -60,6 +62,7 @@ impl Default for SimConfig {
             recharge_boost_enabled: false,
             recharge_boost_per_second: RECHARGE_BOOST_PER_SECOND,
             recharge_boost_delay: RECHARGE_BOOST_DELAY,
+            car_max_speed: CAR_MAX_SPEED,
         }
     }
 }
@@ -363,7 +366,7 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
     }
     s.last_controls = controls;
 
-    let max_speed_bt = CAR_MAX_SPEED * UU_TO_BT;
+    let max_speed_bt = cfg.car_max_speed * UU_TO_BT;
     if body.vel.length_squared() > max_speed_bt * max_speed_bt {
         body.vel = body.vel.normalized() * max_speed_bt;
     }
