@@ -14,4 +14,5 @@ struct EffectsSettings {
 	float glowRange = 2.5f;
 	float glowIntensity = 3.0f;
 	bool boostSound = true;
+	bool engineAudio = true;
 };

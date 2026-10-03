@@ -254,7 +254,7 @@ struct RlCar {
 		STREAMING::SET_MODEL_AS_NO_LONGER_NEEDED(model);
 		if (!veh) return false;
 		ENTITY::SET_ENTITY_AS_MISSION_ENTITY(veh, TRUE, TRUE);
-		ENTITY::FREEZE_ENTITY_POSITION(veh, TRUE);
+		setLive(g_settings.effects.engineAudio);
 		ENTITY::SET_ENTITY_INVINCIBLE(veh, TRUE, FALSE);
 		ENTITY::SET_ENTITY_PROOFS(veh, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE);
 		VEHICLE::SET_VEHICLE_CAN_BE_VISIBLY_DAMAGED(veh, FALSE);
@@ -311,6 +311,16 @@ struct RlCar {
 		probe->forget();
 	}
 
+	bool live = false;
+
+	void setLive(bool on) {
+		live = on;
+		ENTITY::FREEZE_ENTITY_POSITION(veh, on ? FALSE : TRUE);
+		ENTITY::SET_ENTITY_HAS_GRAVITY(veh, on ? FALSE : TRUE);
+		VEHICLE::SET_VEHICLE_GRAVITY(veh, on ? FALSE : TRUE);
+		ENTITY::SET_ENTITY_COLLISION(veh, on ? FALSE : TRUE, FALSE);
+	}
+
 	void applyPose(float alpha) {
 		flags = g_api.car_pose(car, alpha, pose);
 		space::V3 p = frame.toGta(pose);
@@ -320,6 +330,10 @@ struct RlCar {
 		                                    float(p.z + up.z * modelLift), FALSE, FALSE, FALSE);
 		ENTITY::SET_ENTITY_QUATERNION(veh, q.x, q.y, q.z, q.w);
 		float k = float(frame.k());
+		if (live) {
+			space::V3 v = space::dirToGta(pose + 12);
+			ENTITY::SET_ENTITY_VELOCITY(veh, float(v.x * k), float(v.y * k), float(v.z * k));
+		}
 		float ex[3] = {0, (hitbox[3] - hitbox[0] * 0.5f) * k, hitbox[5] * k - modelLift};
 		effects.update(veh, (flags & ffi::flags::BOOSTING) != 0, (flags & ffi::flags::SUPERSONIC) != 0, ex, g_settings.effects);
 	}
@@ -337,6 +351,7 @@ bool loadSettings() {
 	if (g_car && g_car->car) {
 		g_api.car_set_config(g_car->car, g_settings.sim);
 		g_car->applyWorldSettings();
+		if (g_car->live != g_settings.effects.engineAudio) g_car->setLive(g_settings.effects.engineAudio);
 		if (g_car->ball) g_api.ball_set_config(g_car->ball, g_settings.ball);
 	}
 	return found;

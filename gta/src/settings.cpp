@@ -83,6 +83,7 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	effects.glowRange = ini.numf("Effects", "GlowRange", effects.glowRange);
 	effects.glowIntensity = ini.numf("Effects", "GlowIntensity", effects.glowIntensity);
 	effects.boostSound = ini.flag("Effects", "BoostSound", effects.boostSound);
+	effects.engineAudio = ini.flag("Effects", "EngineAudio", effects.engineAudio);
 	weapons.enabled = ini.flag("Weapons", "Enabled", true);
 	weapons.gun = ini.str("Weapons", "Gun", weapons.gun);
 	weapons.missile = ini.str("Weapons", "Missile", weapons.missile);
