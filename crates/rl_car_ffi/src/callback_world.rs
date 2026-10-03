@@ -62,16 +62,6 @@ pub struct CallbackWorld {
     pub sphere_contacts: Option<SphereContactsFn>,
 }
 
-impl CallbackWorld {
-    /// Sphere vs world through the host's sphere callback, sorted like [`CollisionWorld::box_contacts`].
-    pub fn sphere_contacts(&self, center: Vec3, radius: f32, margin: f32, out: &mut Vec<Contact>) {
-        let Some(f) = self.sphere_contacts else { return };
-        let mut buf = [RlContact::default(); MAX_CONTACTS];
-        let n = unsafe { f(self.user, center.to_array().as_ptr(), radius, margin, buf.as_mut_ptr(), MAX_CONTACTS as u32) };
-        push_sorted(&buf[..(n as usize).min(MAX_CONTACTS)], out);
-    }
-}
-
 fn v(a: [f32; 3]) -> Vec3 {
     Vec3::new(a[0], a[1], a[2])
 }
@@ -119,6 +109,13 @@ impl CollisionWorld for CallbackWorld {
         let c = obb_to_c(obb);
         let mut buf = [RlContact::default(); MAX_CONTACTS];
         let n = unsafe { f(self.user, &c, margin, buf.as_mut_ptr(), MAX_CONTACTS as u32) };
+        push_sorted(&buf[..(n as usize).min(MAX_CONTACTS)], out);
+    }
+
+    fn sphere_contacts(&self, center: Vec3, radius: f32, margin: f32, out: &mut Vec<Contact>) {
+        let Some(f) = self.sphere_contacts else { return };
+        let mut buf = [RlContact::default(); MAX_CONTACTS];
+        let n = unsafe { f(self.user, center.to_array().as_ptr(), radius, margin, buf.as_mut_ptr(), MAX_CONTACTS as u32) };
         push_sorted(&buf[..(n as usize).min(MAX_CONTACTS)], out);
     }
 }

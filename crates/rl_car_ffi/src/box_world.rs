@@ -235,6 +235,37 @@ impl CollisionWorld for BoxWorld {
             out.push(Contact { point: p - n * d, normal: n, depth: -d, surface: f.surface });
         }
     }
+
+    fn sphere_contacts(&self, center: Vec3, radius: f32, margin: f32, out: &mut Vec<Contact>) {
+        for f in &self.faces {
+            let n = f.normal();
+            let mut on_plane = Vec3::ZERO;
+            on_plane[f.axis] = f.coord;
+            let deepest = center - n * radius;
+            let d = n.dot(deepest - on_plane);
+            if d >= margin || -d > self.max_penetration + radius * 2.0 {
+                continue;
+            }
+            if f.contains_uv(deepest, 0.0) {
+                out.push(Contact { point: deepest - n * d, normal: n, depth: -d, surface: f.surface });
+                continue;
+            }
+            if n.dot(center - on_plane) < 0.0 {
+                continue;
+            }
+            let (ua, va) = f.uv_axes();
+            let mut q = center;
+            q[f.axis] = f.coord;
+            q[ua] = q[ua].clamp(f.u[0], f.u[1]);
+            q[va] = q[va].clamp(f.v[0], f.v[1]);
+            let off = center - q;
+            let dist = off.length();
+            if dist >= radius + margin || dist <= 1e-4 {
+                continue;
+            }
+            out.push(Contact { point: q, normal: off / dist, depth: radius - dist, surface: f.surface });
+        }
+    }
 }
 
 fn obb_extent_along(obb: &Obb, n: Vec3) -> f32 {

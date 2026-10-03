@@ -14,6 +14,7 @@
 //! All functions accept null handles and return a neutral value for them. Nothing here is
 //! thread-safe: a handle must only be used from one thread at a time.
 
+pub mod ball;
 pub mod box_world;
 pub mod callback_world;
 pub mod snapshot;
@@ -22,12 +23,12 @@ pub use box_world::{Aabb, BoxWorld, Face};
 pub use callback_world::{BoxContactsFn, CallbackWorld, RaycastFn, RlContact, RlObb, RlRayHit, SphereContactsFn};
 
 use rl_car_core::camera::{CameraInput, CameraSettings, CameraTarget, CarCamera};
-use rl_car_core::{CarState, CollisionWorld, Controls, FixedStepper, HitboxPreset, Mat3, Quat, RotMat, SimConfig, TICK_DT, Vec3, step_with};
+use rl_car_core::{CarState, SceneCar, CollisionWorld, Controls, FixedStepper, HitboxPreset, Mat3, Quat, RotMat, SimConfig, TICK_DT, Vec3, step_with};
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped whenever a signature or a buffer layout below changes.
-pub const ABI_VERSION: u32 = 4;
+pub const ABI_VERSION: u32 = 5;
 
 /// Floats written by [`rlcar_car_pose`]:
 ///
@@ -68,6 +69,15 @@ pub mod buttons {
 /// A simulated car: the 120 Hz stepper plus its interpolation state.
 pub struct Car {
     pub stepper: FixedStepper,
+    pub link: SceneCar,
+    pub ball_touched: bool,
+    pub ball_hit: Vec3,
+}
+
+impl Car {
+    fn new(state: CarState) -> Car {
+        Car { stepper: FixedStepper::new(state), link: SceneCar::new(state), ball_touched: false, ball_hit: Vec3::ZERO }
+    }
 }
 
 fn guard<T>(fallback: T, f: impl FnOnce() -> T) -> T {
@@ -141,7 +151,7 @@ pub unsafe extern "C" fn rlcar_world_set_boxes(world: *mut BoxWorld, boxes: *con
 #[unsafe(no_mangle)]
 pub extern "C" fn rlcar_car_new(preset: u32) -> *mut Car {
     let p = HitboxPreset::ALL.get(preset as usize).copied().unwrap_or_default();
-    Box::into_raw(Box::new(Car { stepper: FixedStepper::new(CarState::new(p)) }))
+    Box::into_raw(Box::new(Car::new(CarState::new(p))))
 }
 
 /// # Safety
@@ -172,6 +182,7 @@ pub unsafe extern "C" fn rlcar_car_reset(car: *mut Car, pos: *const f32, yaw: f3
     s.orientation = RotMat::from_angles(yaw, pitch, roll);
     s.on_ground = false;
     c.stepper.reset(s);
+    c.link = SceneCar::new(s);
 }
 
 /// Shifts the car (and its cached contacts) by `delta` uu, for hosts that move their local
