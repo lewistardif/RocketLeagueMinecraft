@@ -16,7 +16,7 @@ if(NOT SHV_SDK)
 endif()
 
 if(EXISTS "${SHV_SDK}/inc/main.h")
-  add_library(RLCar SHARED src/plugin.cpp src/gta_probe.cpp src/interact.cpp ${CORE_SOURCES})
+  add_library(RLCar SHARED src/plugin.cpp src/gta_probe.cpp src/interact.cpp src/effects.cpp ${CORE_SOURCES})
   set_target_properties(RLCar PROPERTIES SUFFIX ".asi")
   target_include_directories(RLCar PRIVATE src "${SHV_SDK}/inc")
   target_link_libraries(RLCar PRIVATE "${SHV_SDK}/lib/ScriptHookV.lib")

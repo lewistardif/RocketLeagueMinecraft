@@ -2,6 +2,7 @@
 #include "ini.h"
 #include "probe_world.h"
 #include "rlcar_ffi.h"
+#include "effects.h"
 #include "interact.h"
 #include "settings.h"
 #include "space.h"
@@ -152,6 +153,7 @@ struct RlCar {
 	space::Quat ballRot;
 	bool ballCam = false;
 	Interactions interactions;
+	Effects effects;
 	float hitbox[6] = {};
 
 	~RlCar() { destroy(); }
@@ -218,6 +220,7 @@ struct RlCar {
 	}
 
 	void destroy() {
+		effects.stop(veh);
 		removeBall();
 		if (cam) {
 			CAMERA::RENDER_SCRIPT_CAMS(FALSE, FALSE, 0, TRUE, FALSE, 0);
@@ -314,6 +317,9 @@ struct RlCar {
 		ENTITY::SET_ENTITY_COORDS_NO_OFFSET(veh, float(p.x + up.x * modelLift), float(p.y + up.y * modelLift),
 		                                    float(p.z + up.z * modelLift), FALSE, FALSE, FALSE);
 		ENTITY::SET_ENTITY_QUATERNION(veh, q.x, q.y, q.z, q.w);
+		float k = float(frame.k());
+		float ex[3] = {0, (hitbox[3] - hitbox[0] * 0.5f) * k, hitbox[5] * k - modelLift};
+		effects.update(veh, (flags & ffi::flags::BOOSTING) != 0, (flags & ffi::flags::SUPERSONIC) != 0, ex, g_settings.effects);
 	}
 };
 

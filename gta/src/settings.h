@@ -1,5 +1,6 @@
 #pragma once
 #include "bindings.h"
+#include "effects_settings.h"
 #include "interact_settings.h"
 #include "rlcar_ffi.h"
 #include <string>
@@ -25,6 +26,7 @@ struct Settings {
 	float ball[ffi::BALL_CONFIG_FLOATS] = {};
 	bool ballCamOnSpawn = true;
 	InteractSettings interact;
+	EffectsSettings effects;
 	Bindings bindings;
 
 	void load(const Ini& ini, const ffi::Api& api);

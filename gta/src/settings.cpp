@@ -69,5 +69,19 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	interact.hitPeds = ini.flag("Interaction", "HitPeds", true);
 	interact.bumpForce = ini.numf("Interaction", "BumpForce", 1.0f);
 	interact.pedForce = ini.numf("Interaction", "PedForce", 1.0f);
+	effects.enabled = ini.flag("Effects", "Enabled", true);
+	effects.asset = ini.str("Effects", "BoostAsset", effects.asset);
+	effects.effect = ini.str("Effects", "BoostEffect", effects.effect);
+	effects.fallbackAsset = ini.str("Effects", "FallbackAsset", effects.fallbackAsset);
+	effects.fallbackEffect = ini.str("Effects", "FallbackEffect", effects.fallbackEffect);
+	effects.scale = ini.numf("Effects", "BoostScale", effects.scale);
+	effects.supersonicScale = ini.numf("Effects", "SupersonicScale", effects.supersonicScale);
+	effects.rot[0] = ini.numf("Effects", "BoostRotX", effects.rot[0]);
+	effects.rot[1] = ini.numf("Effects", "BoostRotY", effects.rot[1]);
+	effects.rot[2] = ini.numf("Effects", "BoostRotZ", effects.rot[2]);
+	effects.idleGlow = ini.flag("Effects", "IdleGlow", effects.idleGlow);
+	effects.glowRange = ini.numf("Effects", "GlowRange", effects.glowRange);
+	effects.glowIntensity = ini.numf("Effects", "GlowIntensity", effects.glowIntensity);
+	effects.boostSound = ini.flag("Effects", "BoostSound", effects.boostSound);
 	bindings.load(ini);
 }

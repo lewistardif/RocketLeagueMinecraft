@@ -2,6 +2,7 @@
 #include "invoker.h"
 
 namespace AUDIO {
+inline void SET_VEHICLE_BOOST_ACTIVE(Vehicle vehicle, BOOL toggle) { return invoke<void>(0x4A04DE7CAB2739A1ULL, vehicle, toggle); }
 inline void SET_VEHICLE_RADIO_ENABLED(Vehicle vehicle, BOOL toggle) { return invoke<void>(0x3B988190C0AA6C0BULL, vehicle, toggle); }
 inline BOOL REQUEST_SCRIPT_AUDIO_BANK(const char* audioBank, BOOL p1, Any p2) { return invoke<BOOL>(0x2F844A8B08D76685ULL, audioBank, p1, p2); }
 inline void PLAY_SOUND_FROM_ENTITY(int soundId, const char* audioName, Entity entity, const char* audioRef, BOOL isNetwork, Any p5) { return invoke<void>(0xE65F427EB70AB1EDULL, soundId, audioName, entity, audioRef, isNetwork, p5); }
@@ -69,6 +70,7 @@ inline void GET_ENTITY_MATRIX(Entity entity, Vector3* forwardVector, Vector3* ri
 inline void SET_ENTITY_HEALTH(Entity entity, int health, Entity instigator, Hash weaponType) { return invoke<void>(0x6B76DC1F3AE6E6A3ULL, entity, health, instigator, weaponType); }
 inline void SET_ENTITY_PROOFS(Entity entity, BOOL bulletProof, BOOL fireProof, BOOL explosionProof, BOOL collisionProof, BOOL meleeProof, BOOL steamProof, BOOL dontResetOnCleanup, BOOL waterProof) { return invoke<void>(0xFAEE099C6F890BB8ULL, entity, bulletProof, fireProof, explosionProof, collisionProof, meleeProof, steamProof, dontResetOnCleanup, waterProof); }
 inline void SET_ENTITY_CAN_BE_DAMAGED(Entity entity, BOOL toggle) { return invoke<void>(0x1760FFA8AB074D66ULL, entity, toggle); }
+inline Vector3 GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(Entity entity, float offsetX, float offsetY, float offsetZ) { return invoke<Vector3>(0x1899F328B0E12848ULL, entity, offsetX, offsetY, offsetZ); }
 inline void SET_ENTITY_AS_NO_LONGER_NEEDED(Entity* entity) { return invoke<void>(0xB736A491E64A32CFULL, entity); }
 }
 
@@ -78,18 +80,20 @@ inline void ADD_OWNED_EXPLOSION(Ped ped, float x, float y, float z, int explosio
 }
 
 namespace GRAPHICS {
+inline void USE_PARTICLE_FX_ASSET(const char* name) { return invoke<void>(0x6C38AF3693A69A91ULL, name); }
+inline int START_PARTICLE_FX_LOOPED_ON_ENTITY(const char* effectName, Entity entity, float xOffset, float yOffset, float zOffset, float xRot, float yRot, float zRot, float scale, BOOL xAxis, BOOL yAxis, BOOL zAxis) { return invoke<int>(0x1AE42C1660FD6517ULL, effectName, entity, xOffset, yOffset, zOffset, xRot, yRot, zRot, scale, xAxis, yAxis, zAxis); }
+inline void STOP_PARTICLE_FX_LOOPED(int ptfxHandle, BOOL p1) { return invoke<void>(0x8F75998877616996ULL, ptfxHandle, p1); }
+inline void SET_PARTICLE_FX_LOOPED_SCALE(int ptfxHandle, float scale) { return invoke<void>(0xB44250AAA456492DULL, ptfxHandle, scale); }
+inline void SET_PARTICLE_FX_LOOPED_ALPHA(int ptfxHandle, float alpha) { return invoke<void>(0x726845132380142EULL, ptfxHandle, alpha); }
+inline void DRAW_LIGHT_WITH_RANGE(float posX, float posY, float posZ, int colorR, int colorG, int colorB, float range, float intensity) { return invoke<void>(0xF2A1B2771A01DBD4ULL, posX, posY, posZ, colorR, colorG, colorB, range, intensity); }
+inline BOOL START_PARTICLE_FX_NON_LOOPED_ON_ENTITY(const char* effectName, Entity entity, float offsetX, float offsetY, float offsetZ, float rotX, float rotY, float rotZ, float scale, BOOL axisX, BOOL axisY, BOOL axisZ) { return invoke<BOOL>(0x0D53A3B8DA0809D2ULL, effectName, entity, offsetX, offsetY, offsetZ, rotX, rotY, rotZ, scale, axisX, axisY, axisZ); }
 inline void DRAW_RECT(float x, float y, float width, float height, int r, int g, int b, int a, BOOL p8) { return invoke<void>(0x3A618A217E5154F0ULL, x, y, width, height, r, g, b, a, p8); }
 inline void DRAW_LINE(float x1, float y1, float z1, float x2, float y2, float z2, int red, int green, int blue, int alpha) { return invoke<void>(0x6B7256074AE34680ULL, x1, y1, z1, x2, y2, z2, red, green, blue, alpha); }
 inline void DRAW_MARKER(int type, float posX, float posY, float posZ, float dirX, float dirY, float dirZ, float rotX, float rotY, float rotZ, float scaleX, float scaleY, float scaleZ, int red, int green, int blue, int alpha, BOOL bobUpAndDown, BOOL faceCamera, int rotationOrder, BOOL rotate, const char* textureDict, const char* textureName, BOOL invert) { return invoke<void>(0x28477EC23D892089ULL, type, posX, posY, posZ, dirX, dirY, dirZ, rotX, rotY, rotZ, scaleX, scaleY, scaleZ, red, green, blue, alpha, bobUpAndDown, faceCamera, rotationOrder, rotate, textureDict, textureName, invert); }
-inline void USE_PARTICLE_FX_ASSET(const char* name) { return invoke<void>(0x6C38AF3693A69A91ULL, name); }
-inline int START_PARTICLE_FX_LOOPED_ON_ENTITY(const char* effectName, Entity entity, float xOffset, float yOffset, float zOffset, float xRot, float yRot, float zRot, float scale, BOOL xAxis, BOOL yAxis, BOOL zAxis) { return invoke<int>(0x1AE42C1660FD6517ULL, effectName, entity, xOffset, yOffset, zOffset, xRot, yRot, zRot, scale, xAxis, yAxis, zAxis); }
 inline int START_PARTICLE_FX_LOOPED_AT_COORD(const char* effectName, float x, float y, float z, float xRot, float yRot, float zRot, float scale, BOOL xAxis, BOOL yAxis, BOOL zAxis, BOOL p11) { return invoke<int>(0xE184F4F0DC5910E7ULL, effectName, x, y, z, xRot, yRot, zRot, scale, xAxis, yAxis, zAxis, p11); }
-inline void STOP_PARTICLE_FX_LOOPED(int ptfxHandle, BOOL p1) { return invoke<void>(0x8F75998877616996ULL, ptfxHandle, p1); }
 inline void REMOVE_PARTICLE_FX(int ptfxHandle, BOOL p1) { return invoke<void>(0xC401503DFE8D53CFULL, ptfxHandle, p1); }
 inline void SET_PARTICLE_FX_LOOPED_OFFSETS(int ptfxHandle, float x, float y, float z, float rotX, float rotY, float rotZ) { return invoke<void>(0xF7DDEBEC43483C43ULL, ptfxHandle, x, y, z, rotX, rotY, rotZ); }
 inline void SET_PARTICLE_FX_LOOPED_EVOLUTION(int ptfxHandle, const char* propertyName, float amount, BOOL noNetwork) { return invoke<void>(0x5F0C4B5B1C393BE2ULL, ptfxHandle, propertyName, amount, noNetwork); }
-inline void SET_PARTICLE_FX_LOOPED_ALPHA(int ptfxHandle, float alpha) { return invoke<void>(0x726845132380142EULL, ptfxHandle, alpha); }
-inline void SET_PARTICLE_FX_LOOPED_SCALE(int ptfxHandle, float scale) { return invoke<void>(0xB44250AAA456492DULL, ptfxHandle, scale); }
 inline void SET_PARTICLE_FX_LOOPED_COLOUR(int ptfxHandle, float r, float g, float b, BOOL p4) { return invoke<void>(0x7F8F65877F88783BULL, ptfxHandle, r, g, b, p4); }
 inline BOOL START_PARTICLE_FX_NON_LOOPED_AT_COORD(const char* effectName, float xPos, float yPos, float zPos, float xRot, float yRot, float zRot, float scale, BOOL xAxis, BOOL yAxis, BOOL zAxis) { return invoke<BOOL>(0x25129531F77B9ED3ULL, effectName, xPos, yPos, zPos, xRot, yRot, zRot, scale, xAxis, yAxis, zAxis); }
 inline BOOL DOES_PARTICLE_FX_LOOPED_EXIST(int ptfxHandle) { return invoke<BOOL>(0x74AFEF0D2E1E409BULL, ptfxHandle); }
@@ -178,14 +182,14 @@ inline int GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL(int shapeTestHandle, BOOL* h
 }
 
 namespace STREAMING {
+inline void REQUEST_NAMED_PTFX_ASSET(const char* fxName) { return invoke<void>(0xB80D8756B4668AB6ULL, fxName); }
+inline BOOL HAS_NAMED_PTFX_ASSET_LOADED(const char* fxName) { return invoke<BOOL>(0x8702416E512EC454ULL, fxName); }
 inline void REQUEST_MODEL(Hash model) { return invoke<void>(0x963D27A58DF860ACULL, model); }
 inline BOOL HAS_MODEL_LOADED(Hash model) { return invoke<BOOL>(0x98A4EB5D89A0C952ULL, model); }
 inline void SET_MODEL_AS_NO_LONGER_NEEDED(Hash model) { return invoke<void>(0xE532F5D78798DAABULL, model); }
 inline BOOL IS_MODEL_IN_CDIMAGE(Hash model) { return invoke<BOOL>(0x35B9E0803292B641ULL, model); }
 inline BOOL IS_MODEL_A_VEHICLE(Hash model) { return invoke<BOOL>(0x19AAC8F07BFEC53EULL, model); }
 inline BOOL IS_MODEL_VALID(Hash model) { return invoke<BOOL>(0xC0296A2EDF545E92ULL, model); }
-inline void REQUEST_NAMED_PTFX_ASSET(const char* fxName) { return invoke<void>(0xB80D8756B4668AB6ULL, fxName); }
-inline BOOL HAS_NAMED_PTFX_ASSET_LOADED(const char* fxName) { return invoke<BOOL>(0x8702416E512EC454ULL, fxName); }
 }
 
 namespace TASK {
