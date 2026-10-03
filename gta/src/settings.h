@@ -2,6 +2,7 @@
 #include "bindings.h"
 #include "effects_settings.h"
 #include "interact_settings.h"
+#include "weapons_settings.h"
 #include "rlcar_ffi.h"
 #include <string>
 
@@ -27,6 +28,7 @@ struct Settings {
 	bool ballCamOnSpawn = true;
 	InteractSettings interact;
 	EffectsSettings effects;
+	WeaponsSettings weapons;
 	Bindings bindings;
 
 	void load(const Ini& ini, const ffi::Api& api);

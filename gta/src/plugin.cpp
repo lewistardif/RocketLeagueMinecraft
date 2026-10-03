@@ -4,6 +4,7 @@
 #include "rlcar_ffi.h"
 #include "effects.h"
 #include "interact.h"
+#include "weapons.h"
 #include "settings.h"
 #include "space.h"
 
@@ -154,6 +155,7 @@ struct RlCar {
 	bool ballCam = false;
 	Interactions interactions;
 	Effects effects;
+	Weapons weapons;
 	float hitbox[6] = {};
 
 	~RlCar() { destroy(); }
@@ -492,6 +494,7 @@ void drawHud(const RlCar& c) {
 	drawText(line, 0.93f, 0.80f, 1.0f, 255, 170, 30, true);
 	drawText("BOOST", 0.93f, 0.86f, 0.35f, 255, 255, 255, true);
 	if (c.ball) drawText(c.ballCam ? "BALL CAM" : "CAR CAM", 0.93f, 0.77f, 0.35f, 255, 255, 255, true);
+	if (g_settings.weapons.enabled) drawText(c.weapons.name(), 0.93f, 0.74f, 0.35f, 255, 200, 120, true);
 	snprintf(line, sizeof line, "%.0f km/h%s", kmh, (c.flags & ffi::flags::SUPERSONIC) ? "  SUPERSONIC" : "");
 	drawText(line, 0.93f, 0.89f, 0.35f, 255, 255, 255, true);
 }
@@ -541,6 +544,13 @@ void tick() {
 		}
 		if (g_edges.pressed(Action::SpawnBall) && g_settings.ballEnabled && !c.spawnBall()) notify("RL Car: could not create the ball");
 		if (g_edges.pressed(Action::BallCam) && c.ball) c.ballCam = !c.ballCam;
+		{
+			float k = float(c.frame.k());
+			float fx = (c.hitbox[3] + c.hitbox[0] * 0.5f + 15.0f) * k, sy = c.hitbox[1] * 0.4f * k, z = c.hitbox[5] * k - c.modelLift;
+			float gl[3] = {-sy, fx, z}, gr[3] = {sy, fx, z};
+			c.weapons.update(c.veh, me, g_edges.now[size_t(Action::FireWeapon)], g_edges.pressed(Action::NextWeapon), gl, gr,
+			                 MISC::GET_FRAME_TIME(), g_settings.weapons);
+		}
 		if (g_edges.pressed(Action::ResetCar)) {
 			space::V3 p = c.position();
 			c.placeAt({p.x, p.y, p.z}, space::headingOf(space::dirToGta(c.pose + 3)));
