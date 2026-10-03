@@ -641,6 +641,7 @@ pub const CAMERA_VIEW_FLOATS: usize = 17;
 pub mod camera_flags {
     /// Rocket League's "Rear Camera" (look behind) is held.
     pub const REAR_VIEW: u32 = 1 << 0;
+    pub const BALL_CAM: u32 = 1 << 1;
 }
 
 fn settings_from(f: &[f32]) -> CameraSettings {

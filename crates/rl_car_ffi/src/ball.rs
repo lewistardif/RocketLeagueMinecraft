@@ -1,7 +1,8 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::callback_world::CallbackWorld;
-use crate::{BoxWorld, Car, controls, guard, read_v};
+use crate::{BoxWorld, CAMERA_SETTINGS_FLOATS, CAMERA_VIEW_FLOATS, Car, camera_flags, controls, guard, read_v, settings_from};
+use rl_car_core::camera::{CameraInput, CameraTarget, CarCamera};
 use rl_car_core::{BallConfig, BallState, CollisionWorld, Controls, EmptyWorld, Scene, TICK_DT, Vec3, step_scene};
 
 pub const BALL_CONFIG_FLOATS: usize = 10;
@@ -232,6 +233,45 @@ pub unsafe extern "C" fn rlcar_scene_step(
     let empty = BoxWorld::default();
     let w = unsafe { world.as_ref() }.unwrap_or(&empty);
     step_scene_ticks(c, b, w, ticks, ctl);
+}
+
+#[allow(clippy::too_many_arguments)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_camera_update_ball(
+    camera: *mut CarCamera,
+    car: *const Car,
+    ball: *const Ball,
+    alpha: f32,
+    dt: f32,
+    settings: *const f32,
+    look_right: f32,
+    look_up: f32,
+    flags: u32,
+    out: *mut f32,
+) -> u32 {
+    let (Some(cam), Some(car)) = (unsafe { camera.as_mut() }, unsafe { car.as_ref() }) else { return 0 };
+    if settings.is_null() || out.is_null() {
+        return 0;
+    }
+    let settings = settings_from(unsafe { std::slice::from_raw_parts(settings, CAMERA_SETTINGS_FLOATS) });
+    let out = unsafe { std::slice::from_raw_parts_mut(out, CAMERA_VIEW_FLOATS) };
+    let ball_pos = unsafe { ball.as_ref() }.filter(|_| flags & camera_flags::BALL_CAM != 0).map(|b| {
+        let t = if alpha.is_finite() { alpha.clamp(0.0, 1.0) } else { 1.0 };
+        b.previous.position + (b.current.position - b.previous.position) * t
+    });
+    guard(0, || {
+        let target = CameraTarget::interpolated(&car.stepper.previous, &car.stepper.current, alpha);
+        let input = CameraInput { look_right, look_up, rear_view: flags & camera_flags::REAR_VIEW != 0 };
+        let v = cam.update_with_ball(&target, ball_pos, &input, &settings, dt);
+        out[0..3].copy_from_slice(&v.location.to_array());
+        for i in 0..3 {
+            out[3 + i * 3..6 + i * 3].copy_from_slice(&v.orientation.0.col(i).to_array());
+        }
+        out[12] = v.fov;
+        out[13] = v.vertical_fov().to_degrees();
+        out[14..17].copy_from_slice(&v.focus.to_array());
+        1
+    })
 }
 
 #[cfg(test)]
