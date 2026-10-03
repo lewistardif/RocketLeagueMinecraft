@@ -14,6 +14,7 @@
 
 pub mod ball;
 pub mod box_world;
+pub mod bump;
 pub mod callback_world;
 pub mod snapshot;
 

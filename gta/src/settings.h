@@ -1,5 +1,6 @@
 #pragma once
 #include "bindings.h"
+#include "interact_settings.h"
 #include "rlcar_ffi.h"
 #include <string>
 
@@ -23,6 +24,7 @@ struct Settings {
 	std::string ballModel = "stt_prop_stunt_soccer_ball";
 	float ball[ffi::BALL_CONFIG_FLOATS] = {};
 	bool ballCamOnSpawn = true;
+	InteractSettings interact;
 	Bindings bindings;
 
 	void load(const Ini& ini, const ffi::Api& api);

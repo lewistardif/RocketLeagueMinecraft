@@ -81,6 +81,8 @@ struct Api {
 	uint32_t (*ball_pose)(const Ball*, float alpha, float* out);
 	uint32_t (*car_ball_touch)(Car*, float* out);
 	uint32_t (*scene_advance_cb)(Car*, Ball*, const World*, double dt, float, float, float, float, float, uint32_t);
+	uint32_t (*car_bump)(const Car*, const float* victimPos, const float* victimVel, uint32_t victimOnGround, const float* victimUp,
+	                     float contactLocalX, float forceScale, uint32_t allowDemolish, float* outVel);
 	uint32_t (*camera_update_ball)(void*, const Car*, const Ball*, float alpha, float dt, const float* settings, float lookRight,
 	                               float lookUp, uint32_t flags, float* out);
 };

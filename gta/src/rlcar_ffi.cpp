@@ -62,6 +62,7 @@ bool load(const std::string& path, Api& api, std::string& error) {
 	get(api.car_ball_touch, "rlcar_car_ball_touch");
 	get(api.scene_advance_cb, "rlcar_scene_advance_cb");
 	get(api.camera_update_ball, "rlcar_camera_update_ball");
+	get(api.car_bump, "rlcar_car_bump");
 	if (ok && api.abi_version() != ABI_VERSION) {
 		error = "rl_car_ffi ABI " + std::to_string(api.abi_version()) + ", plugin expects " + std::to_string(ABI_VERSION) +
 		        "; rebuild with gta\\build.bat";

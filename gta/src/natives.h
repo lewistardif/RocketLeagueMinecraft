@@ -69,6 +69,7 @@ inline void GET_ENTITY_MATRIX(Entity entity, Vector3* forwardVector, Vector3* ri
 inline void SET_ENTITY_HEALTH(Entity entity, int health, Entity instigator, Hash weaponType) { return invoke<void>(0x6B76DC1F3AE6E6A3ULL, entity, health, instigator, weaponType); }
 inline void SET_ENTITY_PROOFS(Entity entity, BOOL bulletProof, BOOL fireProof, BOOL explosionProof, BOOL collisionProof, BOOL meleeProof, BOOL steamProof, BOOL dontResetOnCleanup, BOOL waterProof) { return invoke<void>(0xFAEE099C6F890BB8ULL, entity, bulletProof, fireProof, explosionProof, collisionProof, meleeProof, steamProof, dontResetOnCleanup, waterProof); }
 inline void SET_ENTITY_CAN_BE_DAMAGED(Entity entity, BOOL toggle) { return invoke<void>(0x1760FFA8AB074D66ULL, entity, toggle); }
+inline void SET_ENTITY_AS_NO_LONGER_NEEDED(Entity* entity) { return invoke<void>(0xB736A491E64A32CFULL, entity); }
 }
 
 namespace FIRE {
@@ -195,6 +196,8 @@ inline void CLEAR_PED_TASKS_IMMEDIATELY(Ped ped) { return invoke<void>(0xAAA34F8
 
 namespace VEHICLE {
 inline Ped GET_PED_IN_VEHICLE_SEAT(Vehicle vehicle, int seatIndex, BOOL p2) { return invoke<Ped>(0xBB40DD2270B65366ULL, vehicle, seatIndex, p2); }
+inline void SET_VEHICLE_DAMAGE(Vehicle vehicle, float xOffset, float yOffset, float zOffset, float damage, float radius, BOOL focusOnModel) { return invoke<void>(0xA1DD317EA8FD4F29ULL, vehicle, xOffset, yOffset, zOffset, damage, radius, focusOnModel); }
+inline BOOL IS_VEHICLE_ON_ALL_WHEELS(Vehicle vehicle) { return invoke<BOOL>(0xB104CD1BABF302E2ULL, vehicle); }
 inline Vehicle CREATE_VEHICLE(Hash modelHash, float x, float y, float z, float heading, BOOL isNetwork, BOOL bScriptHostVeh, BOOL p7) { return invoke<Vehicle>(0xAF35D0D2583051B0ULL, modelHash, x, y, z, heading, isNetwork, bScriptHostVeh, p7); }
 inline void SET_VEHICLE_ENGINE_ON(Vehicle vehicle, BOOL value, BOOL instantly, BOOL disableAutoStart) { return invoke<void>(0x2497C4717C8B881EULL, vehicle, value, instantly, disableAutoStart); }
 inline void EXPLODE_VEHICLE(Vehicle vehicle, BOOL isAudible, BOOL isInvisible) { return invoke<void>(0xBA71116ADF5B514CULL, vehicle, isAudible, isInvisible); }

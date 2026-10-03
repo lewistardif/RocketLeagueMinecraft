@@ -64,5 +64,10 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	static const char* kBallKeys[ffi::BALL_CONFIG_FLOATS] = {"Radius", "Mass", "Drag", "WorldFriction", "WorldRestitution",
 	                                                          "MaxSpeed", "MaxSpin", "CarFriction", "CarRestitution", "HitForce"};
 	for (int i = 0; i < ffi::BALL_CONFIG_FLOATS; i++) ball[i] = ini.numf("Ball", kBallKeys[i], ball[i]);
+	interact.enabled = ini.flag("Interaction", "Enabled", true);
+	interact.demolish = ini.flag("Interaction", "Demolish", true);
+	interact.hitPeds = ini.flag("Interaction", "HitPeds", true);
+	interact.bumpForce = ini.numf("Interaction", "BumpForce", 1.0f);
+	interact.pedForce = ini.numf("Interaction", "PedForce", 1.0f);
 	bindings.load(ini);
 }

@@ -2,6 +2,7 @@
 #include "ini.h"
 #include "probe_world.h"
 #include "rlcar_ffi.h"
+#include "interact.h"
 #include "settings.h"
 #include "space.h"
 
@@ -150,6 +151,8 @@ struct RlCar {
 	float ballPose[ffi::BALL_POSE_FLOATS] = {};
 	space::Quat ballRot;
 	bool ballCam = false;
+	Interactions interactions;
+	float hitbox[6] = {};
 
 	~RlCar() { destroy(); }
 
@@ -264,6 +267,7 @@ struct RlCar {
 		modelLift = g_settings.modelOffset != 0 ? float(g_settings.modelOffset) : float(-mn.z - frame.lenToGta(17.0));
 
 		car = g_api.car_new(uint32_t(preset));
+		g_api.preset_hitbox(uint32_t(preset), hitbox);
 		g_api.car_set_config(car, g_settings.sim);
 		probe = std::make_unique<ProbeWorld>([this](const float* a, const float* b, ProbeHit& h) {
 			return gtaProbe(frame, g_settings.probeFlags, veh, a, b, h);
@@ -545,6 +549,10 @@ void tick() {
 
 	float dt = MISC::GET_FRAME_TIME();
 	if (dt > 0 && !HUD::IS_PAUSE_MENU_ACTIVE()) {
+		float speed = std::sqrt(c.pose[12] * c.pose[12] + c.pose[13] * c.pose[13] + c.pose[14] * c.pose[14]);
+		CarView view{&c.frame, c.pose, {}, c.car, c.veh, speed * dt + 10.0f};
+		std::copy(c.hitbox, c.hitbox + 6, view.hitbox);
+		c.interactions.update(g_api, view, g_settings.interact);
 		uint32_t b = (drive.jump ? ffi::buttons::JUMP : 0) | (drive.boost ? ffi::buttons::BOOST : 0) |
 		             (drive.handbrake ? ffi::buttons::HANDBRAKE : 0);
 		if (c.ball)

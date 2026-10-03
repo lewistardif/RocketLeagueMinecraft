@@ -25,6 +25,7 @@
 
 pub mod ball;
 pub mod body;
+pub mod bump;
 pub mod camera;
 pub mod config;
 pub mod consts;
@@ -41,6 +42,7 @@ mod subsimplex;
 pub mod world;
 
 pub use ball::{BallConfig, BallState};
+pub use bump::{Bump, BumpVictim, bump};
 pub use config::{CarConfig, HitboxPreset, WheelPairConfig};
 pub use consts::{TICK_DT, TICK_RATE};
 pub use math::{Mat3, Quat, Vec3};

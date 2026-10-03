@@ -1,4 +1,5 @@
 #include "../src/bindings.h"
+#include "../src/geom.h"
 #include "../src/ini.h"
 #include "../src/probe_world.h"
 #include "../src/rlcar_ffi.h"
@@ -25,7 +26,7 @@ static int g_failures = 0, g_checks = 0;
 			std::printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond);          \
 		}                                                                        \
 	} while (0)
-#define NEAR(a, b, eps) CHECK(std::fabs(double(a) - double(b)) <= (eps))
+#define CHECK_NEAR(a, b, eps) CHECK(std::fabs(double(a) - double(b)) <= (eps))
 
 static ffi::Api api;
 static std::string g_lib;
@@ -45,11 +46,11 @@ static void testSpace() {
 	f.scale = 2.5;
 	float rl[3] = {400, 100, -40}, back[3];
 	space::V3 g = f.toGta(rl);
-	NEAR(g.x, 110, 1e-9);
-	NEAR(g.y, -202.5, 1e-9);
-	NEAR(g.z, 29, 1e-9);
+	CHECK_NEAR(g.x, 110, 1e-9);
+	CHECK_NEAR(g.y, -202.5, 1e-9);
+	CHECK_NEAR(g.z, 29, 1e-9);
 	f.toRl(g, back);
-	for (int i = 0; i < 3; i++) NEAR(back[i], rl[i], 1e-3);
+	for (int i = 0; i < 3; i++) CHECK_NEAR(back[i], rl[i], 1e-3);
 
 	for (double h : {0.0, 45.0, 90.0, 180.0, -135.0}) {
 		float y = space::headingToRlYaw(h);
@@ -57,7 +58,7 @@ static void testSpace() {
 		space::V3 gf = space::dirToGta(fwd);
 		double back = space::headingOf(gf);
 		double diff = std::fmod(back - h + 540.0, 360.0) - 180.0;
-		NEAR(diff, 0, 1e-4);
+		CHECK_NEAR(diff, 0, 1e-4);
 	}
 
 	float cols[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
@@ -71,18 +72,18 @@ static void testSpace() {
 	};
 	double o[3];
 	rot(0, 1, 0, o);
-	NEAR(o[0], 1, 1e-6);
-	NEAR(o[1], 0, 1e-6);
+	CHECK_NEAR(o[0], 1, 1e-6);
+	CHECK_NEAR(o[1], 0, 1e-6);
 	rot(1, 0, 0, o);
-	NEAR(o[1], -1, 1e-6);
+	CHECK_NEAR(o[1], -1, 1e-6);
 	rot(0, 0, 1, o);
-	NEAR(o[2], 1, 1e-6);
+	CHECK_NEAR(o[2], 1, 1e-6);
 
 	float cam[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
 	space::V3 r = space::cameraRotToGta(cam);
-	NEAR(r.x, 0, 1e-6);
-	NEAR(r.y, 0, 1e-6);
-	NEAR(r.z, -90, 1e-6);
+	CHECK_NEAR(r.x, 0, 1e-6);
+	CHECK_NEAR(r.y, 0, 1e-6);
+	CHECK_NEAR(r.z, -90, 1e-6);
 }
 
 static bool planeProbe(const float* a, const float* b, ProbeHit& h) {
@@ -156,7 +157,7 @@ static void testProbeWorldMatchesReference() {
 		double e = std::sqrt(std::pow(pa[0] - pb[0], 2) + dy * dy + std::pow(pa[2] - pb[2], 2));
 		if (e > maxErr) maxErr = e;
 		if (pb[0] > maxZ) maxZ = pb[0];
-		if (t == 59) NEAR(pb[2], 17.0, 0.1);
+		if (t == 59) CHECK_NEAR(pb[2], 17.0, 0.1);
 	}
 	std::printf("  probe world vs BoxWorld: max position error %.3f uu, closest approach x %.1f uu, %llu probes\n",
 	            maxErr, maxZ, static_cast<unsigned long long>(pw.probes));
@@ -196,15 +197,15 @@ static void testIniAndSettings() {
 	ini.loadText("; c\n[Car]\nMaxSpeed = 1800  ; faster cap\nBoostAccelGround = 991.6667\nUnlimitedBoost = off\n"
 	             "[camera]\nPreset=Custom\nfov=105\n[Gamepad]\nJump = CROSS\nBoost=\n");
 	CHECK(ini.has("car", "maxspeed"));
-	NEAR(ini.num("Car", "MaxSpeed", 0), 1800, 0);
+	CHECK_NEAR(ini.num("Car", "MaxSpeed", 0), 1800, 0);
 	Settings s;
 	s.load(ini, api);
-	NEAR(s.sim[14], 1800, 0);
+	CHECK_NEAR(s.sim[14], 1800, 0);
 	float def[ffi::SIM_CONFIG_FLOATS];
 	api.default_config(def);
 	CHECK(s.sim[1] == def[1]);
 	CHECK(s.sim[10] == 0);
-	NEAR(s.camera[0], 105, 0);
+	CHECK_NEAR(s.camera[0], 105, 0);
 	CHECK(Settings::presetIndex("Psyclops") == 6);
 
 	InputState in;
@@ -232,33 +233,72 @@ static void testBindings() {
 	InputState s;
 	s.keys[size_t(Bindings::keyCode("W"))] = true;
 	DriveInput d = b.drive(s);
-	NEAR(d.throttle, 1, 0);
-	NEAR(d.pitch, -1, 0);
+	CHECK_NEAR(d.throttle, 1, 0);
+	CHECK_NEAR(d.pitch, -1, 0);
 	s = {};
 	s.pad.connected = true;
 	s.pad.rt = 0.4f;
 	s.pad.lx = 1.0f;
 	s.pad.ly = 1.0f;
 	d = b.drive(s);
-	NEAR(d.throttle, 0.4, 1e-6);
-	NEAR(d.steer, 1, 1e-6);
-	NEAR(d.yaw, 1, 1e-6);
-	NEAR(d.pitch, -1, 1e-6);
+	CHECK_NEAR(d.throttle, 0.4, 1e-6);
+	CHECK_NEAR(d.steer, 1, 1e-6);
+	CHECK_NEAR(d.yaw, 1, 1e-6);
+	CHECK_NEAR(d.pitch, -1, 1e-6);
 	s.pad.buttons = pad::X;
 	d = b.drive(s);
-	NEAR(d.yaw, 0, 0);
-	NEAR(d.roll, 1, 1e-6);
+	CHECK_NEAR(d.yaw, 0, 0);
+	CHECK_NEAR(d.roll, 1, 1e-6);
 	CHECK(d.handbrake);
 	s = {};
 	s.pad.connected = true;
 	s.pad.buttons = pad::LB;
-	NEAR(b.drive(s).roll, -1, 0);
+	CHECK_NEAR(b.drive(s).roll, -1, 0);
 	s.pad.buttons = pad::LS;
 	CHECK(!b.held(Action::BecomeCar, s));
 	s.pad.buttons = pad::LS | pad::RS;
 	CHECK(b.held(Action::BecomeCar, s));
 	CHECK(Bindings::padBits("square") == pad::X && Bindings::padBits("LS+RS") == (pad::LS | pad::RS));
 	CHECK(Bindings::keyCode("F10") == 0x79 && Bindings::keyCode("nope") == -1);
+}
+
+static void testGeom() {
+	geom::Box a{{0, 0, 0}, {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}, {60, 40, 18}};
+	geom::Box b = a;
+	b.c[0] = 130;
+	b.h[0] = 80;
+	CHECK(geom::overlap(a, b));
+	b.c[0] = 141;
+	CHECK(!geom::overlap(a, b));
+	float s = std::sqrt(0.5f);
+	geom::Box r{{0, 105, 0}, {{s, s, 0}, {-s, s, 0}, {0, 0, 1}}, {50, 50, 50}};
+	CHECK(geom::overlap(a, r));
+	r.c[1] = 112 + 40;
+	CHECK(!geom::overlap(a, r));
+	float p[3] = {500, 10, -100}, local[3];
+	geom::closestLocal(a, p, local);
+	CHECK_NEAR(local[0], 60, 1e-4);
+	CHECK_NEAR(local[1], 10, 1e-4);
+	CHECK_NEAR(local[2], -18, 1e-4);
+}
+
+static void testBallAndBump() {
+	ffi::Ball* ball = api.ball_new();
+	float cfg[ffi::BALL_CONFIG_FLOATS];
+	api.default_ball_config(cfg);
+	CHECK(cfg[0] == 91.25f && cfg[1] == 30.0f);
+	float pos[3] = {0, 0, 500}, vel[3] = {0, 0, -1}, pose[ffi::BALL_POSE_FLOATS];
+	api.ball_reset(ball, pos, vel, nullptr);
+	ffi::Car* car = api.car_new(0);
+	float cpos[3] = {-3000, 0, 17};
+	api.car_reset(car, cpos, 0, 0, 0);
+	for (int i = 0; i < 120; i++) api.scene_advance_cb(car, ball, nullptr, 1.0 / 120.0, 0, 0, 0, 0, 0, 0);
+	api.ball_pose(ball, 1.0f, pose);
+	CHECK(pose[2] < 200 && pose[5] < -600);
+	float vpos[3] = {-2850, 0, 17}, vvel[3] = {0, 0, 0}, up[3] = {0, 0, 1}, dv[3] = {};
+	CHECK(api.car_bump(car, vpos, vvel, 1, up, 70, 1, 1, dv) == 0);
+	api.ball_free(ball);
+	api.car_free(car);
 }
 
 int main(int argc, char** argv) {
@@ -274,6 +314,8 @@ int main(int argc, char** argv) {
 	testBindings();
 	testProbeWorldMatchesReference();
 	testWallRampClimb();
+	testGeom();
+	testBallAndBump();
 	std::printf("%d checks, %d failures\n", g_checks, g_failures);
 	return g_failures ? 1 : 0;
 }
