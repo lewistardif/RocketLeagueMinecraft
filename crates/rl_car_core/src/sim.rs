@@ -36,6 +36,8 @@ pub struct SimConfig {
     pub car_world_restitution: f32,
     pub unlimited_flips: bool,
     pub unlimited_double_jumps: bool,
+    /// Rocket League's "Unlimited" boost mutator: the tank stays full.
+    pub unlimited_boost: bool,
     pub recharge_boost_enabled: bool,
     pub recharge_boost_per_second: f32,
     pub recharge_boost_delay: f32,
@@ -54,6 +56,7 @@ impl Default for SimConfig {
             car_world_restitution: CARWORLD_COLLISION_RESTITUTION,
             unlimited_flips: false,
             unlimited_double_jumps: false,
+            unlimited_boost: false,
             recharge_boost_enabled: false,
             recharge_boost_per_second: RECHARGE_BOOST_PER_SECOND,
             recharge_boost_delay: RECHARGE_BOOST_DELAY,
@@ -94,6 +97,9 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
     let mut s = *state;
     let controls = controls.clamped();
     let car = s.config();
+    if cfg.unlimited_boost {
+        s.boost_amount = BOOST_MAX;
+    }
     let mut body = Body::new(s.position, s.velocity, s.angular_velocity, s.orientation.0, &car);
 
     // ---------------------------------------------------------------- 1. vehicle (first half)
@@ -747,7 +753,9 @@ fn update_boost(s: &mut CarState, c: &Controls, cfg: &SimConfig, body: &mut Body
     }
 
     if s.is_boosting {
-        s.boost_amount = (s.boost_amount - cfg.boost_used_per_second * dt).max(0.0);
+        if !cfg.unlimited_boost {
+            s.boost_amount = (s.boost_amount - cfg.boost_used_per_second * dt).max(0.0);
+        }
         let accel = if s.on_ground { cfg.boost_accel_ground } else { cfg.boost_accel_air };
         body.apply_central_force(accel * UU_TO_BT * body.forward() * CAR_MASS_BT);
         s.time_since_boosted = 0.0;

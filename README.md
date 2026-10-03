@@ -2,7 +2,9 @@
 
 > **Unofficial fan project.** Not affiliated with, endorsed by, sponsored by, or connected to
 > Psyonix or Epic Games. "Rocket League" is a trademark of Psyonix. No Rocket League assets, code or
-> binaries are included or needed; the game is only a reference.
+> binaries are included or needed; the game is only a reference. The demo can optionally show the real
+> car models, extracted locally from your own copy of the game (see below); those files are git-ignored
+> and must never be committed or redistributed.
 
 This repository reimplements Rocket League's **car** physics (driving, powerslide, the wall/ceiling
 sticky force, boost, jumps, double jumps, dodges/flips, flip cancels, aerial control, suspension,
@@ -16,6 +18,9 @@ the six hitbox presets, car-vs-world collision) as:
 3. **`crates/rl_car_validate`** + **`oracle/`**: a validation harness that runs the same inputs
    through **RocketSim** (the open-source reference simulator) and through the core, then compares
    the two trajectories tick by tick.
+4. **`crates/rl_car_ffi`** + **`minecraft/`**: a C ABI over the core (for engines not written in
+   Rust), and a **Minecraft (Fabric 26.3)** mod that drives the same core through it. See
+   [`minecraft/README.md`](minecraft/README.md).
 
 ## Results
 
@@ -56,9 +61,38 @@ cargo run -p rl_car_bevy --release
 | Left Ctrl | X | powerslide; in the air, makes A/D (stick) air roll |
 | H | | scripted half-flip (drive backwards first) |
 | R / 1–7 | | reset / switch hitbox preset |
+| T | | switch team colour (real car models only) |
+| I | | infinite boost on / off (on by default, a temporary testing aid) |
 
 `cargo run -p rl_car_bevy --release -- --autopilot <dir>` plays a scripted run (boost, front flip,
 quarter-pipe, back wall, ceiling), saves four screenshots to `<dir>` and exits.
+`-- --showcase <dir>` photographs every car parked, close up, and exits.
+
+### Real Rocket League car models (optional)
+
+If you own Rocket League, `tools/rl_assets/extract.py` pulls the real car models out of your install
+into `assets/rl/` (git-ignored), and the demo then uses them instead of the placeholder box car. One
+car per hitbox preset: Octane, Dominus, Plank (the Plank-hitbox body `Body_Orion`), Breakout, Hybrid
+(Venom), Merc and Psyclops, each in a blue and an orange variant, with the default OEM wheels.
+
+```bash
+python tools/rl_assets/extract.py --umodel <folder with umodel_64.exe> --upksuite <RL-UPKSuite release folder>
+```
+
+It needs Python 3 with `numpy` and `Pillow`, the .NET SDK, [UModel](https://www.gildor.org/en/projects/umodel)
+and [RL-UPKSuite](https://github.com/Martinii89/RL-UPKSuite) (its decryptor, wrapped by the tiny CLI in
+`tools/rl_assets/rldecrypt`). The game is read from `C:\Program Files\Epic Games\rocketleague`
+unless `--game` says otherwise. The work folder (`target/rl_assets_work`) hard-links the game's
+`Textures*.tfc` caches, so it must be on the same drive as the game.
+
+What you get is the game's geometry and texture maps. The game's material shaders, lighting and post-
+processing are not portable, so the extractor rebuilds each material for Bevy's PBR: team paint baked
+from the body's paint masks, clear coat, normal maps, headlight/tail-light masks as emissive. Expect it
+to look close to the game, not identical. The team colours are approximations (the game picks them from
+a palette texture that is not extracted).
+
+Read Epic's EULA before doing this: it does not allow extracting the game's assets, and owning the game
+does not change that. Keep the extracted files on your machine.
 
 Other commands:
 
@@ -166,7 +200,11 @@ crates/rl_car_core/       physics core (no dependencies)
   src/stepper.rs          fixed 120 Hz accumulator
   src/maneuvers.rs        dodge / half-flip input scripts
 crates/rl_car_bevy/       Bevy 0.19 demo + avian3d collision host
+  src/visuals.rs          optional real car models (assets/rl), wheel anchors, mipmaps
+tools/rl_assets/          extractor for the real car models from your own game install
 crates/rl_car_validate/   scenarios, comparison, report, regression test
+crates/rl_car_ffi/        C ABI over the core + BoxWorld (seamless collision from voxel boxes)
+minecraft/                Fabric mod: car entity, renderer, chase cam, networking, tests
 oracle/                   RocketSim oracle (C++), build script
 validation/               scenario files, RocketSim traces, REPORT.md
 CONSTANTS.md              every constant with its source

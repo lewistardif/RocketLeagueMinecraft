@@ -8,6 +8,12 @@ licenses ask. Both licenses allow this kind of reuse, including commercially.
 None of the projects below ship with this repository's runtime. RocketSim and Bullet are fetched
 only to build the validation oracle (`oracle/build.sh`).
 
+The optional car-model extractor (`tools/rl_assets/`) drives two external tools that you download
+yourself; neither is included here: UModel / UE Viewer by Konstantin Nosov (MIT,
+https://github.com/gildor2/UEViewer) and RL-UPKSuite by Martinii89
+(https://github.com/Martinii89/RL-UPKSuite), whose `Core.dll` the `rldecrypt` wrapper links against.
+The extracted Rocket League assets belong to Psyonix / Epic Games and are never part of this repository.
+
 ---
 
 ## RocketSim — https://github.com/ZealanL/RocketSim (MIT)

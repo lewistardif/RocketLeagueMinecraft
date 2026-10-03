@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "package": "dev.rlcar.client.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "CameraMixin",
+    "EntityRenderDispatcherMixin",
+    "KeyBindsListMixin",
+    "KeyBindsListPadMixin",
+    "KeyBindsScreenMixin",
+    "KeyboardInputMixin",
+    "MinecraftMixin"
+  ],
+  "injectors": { "defaultRequire": 1 }
+}

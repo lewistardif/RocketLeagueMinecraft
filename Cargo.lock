@@ -4936,6 +4936,13 @@ name = "rl_car_core"
 version = "0.1.0"
 
 [[package]]
+name = "rl_car_ffi"
+version = "0.1.0"
+dependencies = [
+ "rl_car_core",
+]
+
+[[package]]
 name = "rl_car_validate"
 version = "0.1.0"
 dependencies = [

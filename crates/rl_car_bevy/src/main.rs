@@ -7,12 +7,13 @@
 //!         -> rl_car_core::step(.., AvianWorld) for each tick
 //!   render: interpolate previous/current tick state -> car Transform, wheels, camera, HUD.
 
-#![allow(clippy::type_complexity)] // Bevy system parameter types.
+#![allow(clippy::type_complexity, clippy::too_many_arguments)] // Bevy system parameter lists.
 
 mod arena;
 mod collision;
 mod convert;
 mod input;
+mod visuals;
 #[cfg(test)]
 mod host_tests;
 
@@ -22,21 +23,28 @@ use collision::{ArenaColliderQuery, AvianWorld};
 use convert::*;
 use rl_car_core::maneuvers::{HalfFlip, Maneuver};
 use rl_car_core::{CarState, Controls, FixedStepper, HitboxPreset, RotMat, Vec3 as RVec3};
+use visuals::{CarVisuals, RealBody, Team};
 
 fn main() {
     let autopilot = Autopilot::from_args();
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window { title: "rl_car_core - Bevy demo (unofficial)".into(), ..default() }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window { title: "rl_car_core - Bevy demo (unofficial)".into(), ..default() }),
+                    ..default()
+                })
+                .set(AssetPlugin { file_path: visuals::asset_root().to_string_lossy().into_owned(), ..default() }),
+        )
         .add_plugins(PhysicsPlugins::default())
         .insert_resource(ClearColor(Color::srgb(0.55, 0.68, 0.85)))
         .insert_resource(Sim::new(HitboxPreset::Octane))
         .insert_resource(CameraRig::default())
+        .insert_resource(CarVisuals::detect())
         .insert_resource(autopilot)
+        .insert_resource(Showcase::from_args())
         .add_systems(Startup, (arena::spawn_arena, spawn_car, spawn_camera, spawn_hud))
-        .add_systems(Update, (hotkeys, simulate, sync_car, sync_wheels, follow_camera, update_hud, autopilot_shots).chain())
+        .add_systems(Update, (hotkeys, simulate, sync_car, sync_wheels, follow_camera, update_hud, autopilot_shots, showcase, visuals::generate_mipmaps).chain())
         .run();
 }
 
@@ -106,6 +114,64 @@ fn autopilot_shots(mut commands: Commands, mut ap: ResMut<Autopilot>, sim: Res<S
     }
 }
 
+/// `--showcase <dir>`: photograph every car parked, from a close front 3/4 view (blue team, then
+/// the orange Octane), and exit. Used to check the extracted Rocket League models.
+#[derive(Resource, Default)]
+struct Showcase {
+    dir: Option<std::path::PathBuf>,
+    step: usize,
+    wait: f32,
+}
+
+const SHOWCASE_STEPS: usize = HitboxPreset::ALL.len() + 1;
+
+impl Showcase {
+    fn from_args() -> Showcase {
+        let args: Vec<String> = std::env::args().collect();
+        let dir = args.iter().position(|a| a == "--showcase").and_then(|i| args.get(i + 1)).map(Into::into);
+        Showcase { dir, ..default() }
+    }
+
+    fn step_car(step: usize) -> (HitboxPreset, Team) {
+        match HitboxPreset::ALL.get(step) {
+            Some(&p) => (p, Team::Blue),
+            None => (HitboxPreset::Octane, Team::Orange),
+        }
+    }
+}
+
+fn showcase(mut commands: Commands, time: Res<Time>, mut sc: ResMut<Showcase>, mut sim: ResMut<Sim>, mut visuals: ResMut<CarVisuals>, mut exit: MessageWriter<AppExit>) {
+    let Some(dir) = sc.dir.clone() else { return };
+    if sc.step >= SHOWCASE_STEPS {
+        // Give the last screenshot a moment to be written.
+        sc.wait += time.delta_secs();
+        if sc.wait > 0.5 {
+            exit.write(AppExit::Success);
+        }
+        return;
+    }
+    let (preset, team) = Showcase::step_car(sc.step);
+    if sim.preset != preset || visuals.team != team {
+        sim.preset = preset;
+        visuals.team = team;
+        sim.stepper.reset(spawn_state(preset));
+        sc.wait = 0.0;
+    }
+    sc.wait += time.delta_secs();
+    // Let the car settle on its suspension and the textures (and their mips) load.
+    if sc.wait > 2.5 {
+        let path = dir.join(format!("showcase_{}_{}.png", preset.name(), team.name()));
+        commands.spawn(bevy::render::view::screenshot::Screenshot::primary_window()).observe(bevy::render::view::screenshot::save_to_disk(path));
+        sc.step += 1;
+        sc.wait = 0.0;
+        if let Some((p, t)) = (sc.step < SHOWCASE_STEPS).then(|| Showcase::step_car(sc.step)) {
+            sim.preset = p;
+            visuals.team = t;
+            sim.stepper.reset(spawn_state(p));
+        }
+    }
+}
+
 // ------------------------------------------------------------------------------------ state
 
 #[derive(Resource)]
@@ -116,11 +182,13 @@ struct Sim {
     last_input: Controls,
     frames: u32,
     ticks_last_frame: u32,
+    /// Testing aid: keep the boost tank full (toggle with I).
+    infinite_boost: bool,
 }
 
 impl Sim {
     fn new(preset: HitboxPreset) -> Sim {
-        Sim { stepper: FixedStepper::new(spawn_state(preset)), preset, maneuver: None, last_input: Controls::default(), frames: 0, ticks_last_frame: 0 }
+        Sim { stepper: FixedStepper::new(spawn_state(preset)), preset, maneuver: None, last_input: Controls::default(), frames: 0, ticks_last_frame: 0, infinite_boost: true }
     }
 }
 
@@ -139,8 +207,13 @@ struct CarRoot;
 #[derive(Component)]
 struct CarBody;
 
+/// Uniform scale = wheel radius (m); `spin` is the accumulated roll angle (rad).
 #[derive(Component)]
-struct Wheel(usize);
+struct Wheel {
+    index: usize,
+    spin: f32,
+    spin_rate: f32,
+}
 
 #[derive(Component)]
 struct BoostFlame;
@@ -150,7 +223,7 @@ struct Hud;
 
 // ------------------------------------------------------------------------------------ spawning
 
-fn spawn_car(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>, sim: Res<Sim>) {
+fn spawn_car(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>, sim: Res<Sim>, visuals: Res<CarVisuals>, assets: Res<AssetServer>) {
     let body_mat = materials.add(StandardMaterial { base_color: Color::srgb(0.95, 0.45, 0.1), perceptual_roughness: 0.4, metallic: 0.2, ..default() });
     let glass_mat = materials.add(StandardMaterial { base_color: Color::srgb(0.1, 0.12, 0.18), perceptual_roughness: 0.1, ..default() });
     let wheel_mat = materials.add(StandardMaterial { base_color: Color::srgb(0.08, 0.08, 0.08), perceptual_roughness: 0.9, ..default() });
@@ -159,15 +232,27 @@ fn spawn_car(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mater
     let root = commands.spawn((CarRoot, Transform::default(), Visibility::default())).id();
     commands.entity(root).with_children(|p| {
         p.spawn((CarBody, Transform::default(), Visibility::default())).with_children(|b| {
-            b.spawn((Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))), MeshMaterial3d(body_mat), Transform::default(), Name::new("hull")));
-            b.spawn((Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))), MeshMaterial3d(glass_mat), Transform::default(), Name::new("cabin")));
+            if visuals.real {
+                b.spawn(visuals::body_bundle(&assets, sim.preset, visuals.team));
+            } else {
+                b.spawn((Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))), MeshMaterial3d(body_mat), Transform::default(), Name::new("hull")));
+                b.spawn((Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))), MeshMaterial3d(glass_mat), Transform::default(), Name::new("cabin")));
+            }
             b.spawn((BoostFlame, Mesh3d(meshes.add(Cone { radius: 0.12, height: 0.6 })), MeshMaterial3d(flame_mat), Transform::default(), Visibility::Hidden));
         });
+        let cylinder = meshes.add(Cylinder::new(1.0, 1.0));
         for i in 0..4 {
-            p.spawn((Wheel(i), Mesh3d(meshes.add(Cylinder::new(1.0, 1.0))), MeshMaterial3d(wheel_mat.clone()), Transform::default()));
+            let left = HitboxPreset::Octane.config().wheel(i).0.y < 0.0; // RL +Y is car right
+            p.spawn((Wheel { index: i, spin: 0.0, spin_rate: 0.0 }, Transform::default(), Visibility::default())).with_children(|w| {
+                if visuals.real {
+                    w.spawn(visuals::wheel_bundle(&assets, left));
+                } else {
+                    // Cylinder axis (Y) -> wheel axle (Z).
+                    w.spawn((Mesh3d(cylinder.clone()), MeshMaterial3d(wheel_mat.clone()), Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)).with_scale(Vec3::new(1.0, 0.9, 1.0))));
+                }
+            });
         }
     });
-    let _ = sim;
 }
 
 /// Lays out hull/cabin/flame for the current preset (hitbox in Bevy car-local space).
@@ -207,7 +292,7 @@ fn spawn_hud(mut commands: Commands) {
 
 // ------------------------------------------------------------------------------------ update
 
-fn hotkeys(keys: Res<ButtonInput<KeyCode>>, mut sim: ResMut<Sim>) {
+fn hotkeys(keys: Res<ButtonInput<KeyCode>>, mut sim: ResMut<Sim>, mut visuals: ResMut<CarVisuals>) {
     let presets = [
         (KeyCode::Digit1, HitboxPreset::Octane),
         (KeyCode::Digit2, HitboxPreset::Dominus),
@@ -232,6 +317,12 @@ fn hotkeys(keys: Res<ButtonInput<KeyCode>>, mut sim: ResMut<Sim>) {
     if keys.just_pressed(KeyCode::KeyH) {
         sim.maneuver = Some(HalfFlip::new());
     }
+    if keys.just_pressed(KeyCode::KeyT) {
+        visuals.team = if visuals.team == Team::Blue { Team::Orange } else { Team::Blue };
+    }
+    if keys.just_pressed(KeyCode::KeyI) {
+        sim.infinite_boost = !sim.infinite_boost;
+    }
 }
 
 fn simulate(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&Gamepad>, spatial: SpatialQuery, colliders: ArenaColliderQuery, mut sim: ResMut<Sim>, autopilot: Res<Autopilot>) {
@@ -248,6 +339,9 @@ fn simulate(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&G
     }
     sim.last_input = if scripted { Autopilot::controls(sim.stepper.tick_count as f32 * rl_car_core::TICK_DT) } else { input };
 
+    if sim.infinite_boost {
+        sim.stepper.current.boost_amount = 100.0;
+    }
     let Sim { stepper, maneuver, .. } = &mut *sim;
     let mut tick = stepper.tick_count;
     let ticks = stepper.advance_with(time.delta_secs_f64(), &world, |state| {
@@ -272,7 +366,18 @@ fn simulate(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&G
     }
 }
 
-fn sync_car(sim: Res<Sim>, mut root: Query<(&mut Transform, &Children), With<CarRoot>>, body: Query<&Children, With<CarBody>>, mut parts: Query<(&mut Transform, Option<&Name>, Option<&BoostFlame>), Without<CarRoot>>, mut flames: Query<&mut Visibility, With<BoostFlame>>, mut last_preset: Local<Option<HitboxPreset>>) {
+fn sync_car(
+    mut commands: Commands,
+    sim: Res<Sim>,
+    visuals: Res<CarVisuals>,
+    assets: Res<AssetServer>,
+    mut root: Query<(&mut Transform, &Children), With<CarRoot>>,
+    body: Query<(Entity, &Children), With<CarBody>>,
+    real_bodies: Query<(Entity, &RealBody)>,
+    mut parts: Query<(&mut Transform, Option<&Name>, Option<&BoostFlame>), Without<CarRoot>>,
+    mut flames: Query<&mut Visibility, With<BoostFlame>>,
+    mut last_preset: Local<Option<HitboxPreset>>,
+) {
     let Ok((mut t, children)) = root.single_mut() else { return };
     let (a, b) = (&sim.stepper.previous, &sim.stepper.current);
     let alpha = sim.stepper.alpha();
@@ -283,31 +388,48 @@ fn sync_car(sim: Res<Sim>, mut root: Query<(&mut Transform, &Children), With<Car
 
     if *last_preset != Some(sim.preset) {
         for c in children.iter() {
-            if let Ok(body_children) = body.get(c) {
+            if let Ok((_, body_children)) = body.get(c) {
                 layout_body(sim.preset, body_children, &mut parts);
             }
         }
         *last_preset = Some(sim.preset);
+    }
+    // Real model: respawn when the preset or team changed.
+    for (e, real) in real_bodies.iter() {
+        if real.0 != sim.preset || real.1 != visuals.team {
+            commands.entity(e).despawn();
+            if let Ok((body_entity, _)) = body.single() {
+                commands.entity(body_entity).with_child(visuals::body_bundle(&assets, sim.preset, visuals.team));
+            }
+        }
     }
     for mut v in flames.iter_mut() {
         *v = if b.is_boosting { Visibility::Visible } else { Visibility::Hidden };
     }
 }
 
-fn sync_wheels(sim: Res<Sim>, mut wheels: Query<(&Wheel, &mut Transform)>) {
+fn sync_wheels(time: Res<Time>, sim: Res<Sim>, visuals: Res<CarVisuals>, mut wheels: Query<(&mut Wheel, &mut Transform)>) {
     let s = &sim.stepper.current;
     let cfg = s.config();
-    for (w, mut t) in wheels.iter_mut() {
-        let (cp, radius, _, _) = cfg.wheel(w.0);
-        let susp = s.wheels[w.0].suspension_length;
+    let forward_speed = s.velocity.dot(s.forward()); // uu/s
+    for (mut w, mut t) in wheels.iter_mut() {
+        let (cp, radius, _, front) = cfg.wheel(w.index);
+        let susp = s.wheels[w.index].suspension_length;
         // Wheel centre in RL car-local space: hang down from the attachment by the suspension length.
         let local = RVec3::new(cp.x, cp.y, cp.z - susp);
-        let r = radius / UU_PER_M;
         t.translation = dir_to_bevy(local) / UU_PER_M;
-        // Cylinder axis (Y) -> car right (Bevy local Z), then steer about car up.
-        let steer = -s.wheels[w.0].steer_angle;
-        t.rotation = Quat::from_rotation_y(steer) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
-        t.scale = Vec3::new(r, 0.12, r);
+        // A real model puts its wheels at its own hubs (fore/aft and sideways).
+        if let Some(anchor) = visuals.wheel_anchor(sim.preset, front, cp.y < 0.0) {
+            t.translation.x = anchor.x;
+            t.translation.z = anchor.z;
+        }
+        // Roll with the ground speed while touching; spin down slowly in the air.
+        w.spin_rate = if s.wheel_contacts[w.index] { forward_speed / radius } else { w.spin_rate * (-0.5 * time.delta_secs()).exp() };
+        w.spin = (w.spin - w.spin_rate * time.delta_secs()) % std::f32::consts::TAU;
+        // Axle = car right (Bevy local Z): steer about car up, then roll about the axle.
+        let steer = -s.wheels[w.index].steer_angle;
+        t.rotation = Quat::from_rotation_y(steer) * Quat::from_rotation_z(w.spin);
+        t.scale = Vec3::splat(radius / UU_PER_M);
     }
 }
 
@@ -324,8 +446,13 @@ impl Default for CameraRig {
     }
 }
 
-fn follow_camera(time: Res<Time>, car: Query<&Transform, With<CarRoot>>, mut cam: Query<&mut Transform, (With<Camera3d>, Without<CarRoot>)>, mut rig: ResMut<CameraRig>, sim: Res<Sim>) {
+fn follow_camera(time: Res<Time>, car: Query<&Transform, With<CarRoot>>, mut cam: Query<&mut Transform, (With<Camera3d>, Without<CarRoot>)>, mut rig: ResMut<CameraRig>, sim: Res<Sim>, showcase: Res<Showcase>) {
     let (Ok(car), Ok(mut cam)) = (car.single(), cam.single_mut()) else { return };
+    if showcase.dir.is_some() {
+        let (fwd, right) = (car.rotation * Vec3::X, car.rotation * Vec3::Z);
+        *cam = Transform::from_translation(car.translation + fwd * 1.8 + right * 1.4 + Vec3::Y * 0.6).looking_at(car.translation + Vec3::Y * 0.15, Vec3::Y);
+        return;
+    }
     let s = &sim.stepper.current;
     let fwd = car.rotation * Vec3::X;
     let car_up = car.rotation * Vec3::Y;
@@ -356,17 +483,19 @@ fn update_hud(sim: Res<Sim>, diagnostics: Res<Time>, mut hud: Query<&mut Text, W
     text.0 = format!(
         "rl_car_core Bevy demo (unofficial)\n\
          car: {:?}   speed: {:>4.0} uu/s ({:>3.0} km/h){}\n\
-         boost: {:>3.0}   on ground: {}   wheels: {}\n\
+         boost: {:>3.0}{}   on ground: {}   wheels: {}\n\
          jumped: {}  double: {}  flipped: {}  {}\n\
          input  thr {:+.1} steer {:+.1} pitch {:+.1} yaw {:+.1} roll {:+.1} {}{}{}\n\
          {:.0} fps, {} physics ticks/frame (120 Hz)\n\n\
          W/S throttle+pitch  A/D steer+yaw  Q/E air roll  Space jump\n\
-         Shift boost  Ctrl powerslide/air roll  H half-flip  R reset  1-7 hitbox",
+         Shift boost  Ctrl powerslide/air roll  H half-flip  R reset  1-7 hitbox\n\
+         T team  I infinite boost",
         sim.preset,
         speed,
         speed * 0.036,
         if s.is_supersonic { "  SUPERSONIC" } else { "" },
         s.boost_amount,
+        if sim.infinite_boost { " (infinite)" } else { "" },
         s.on_ground,
         s.wheel_contacts.iter().map(|&w| if w { 'o' } else { '.' }).collect::<String>(),
         s.has_jumped,

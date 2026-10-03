@@ -1,0 +1,13 @@
+[package]
+name = "rl_car_ffi"
+description = "C ABI for rl_car_core, plus an axis-aligned box world for voxel hosts such as Minecraft (unofficial)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rl_car_core = { path = "../rl_car_core" }

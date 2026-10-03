@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "rlcar-test",
+  "version": "${version}",
+  "name": "RL Car end-to-end test",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-client-gametest": ["dev.rlcar.test.CarClientGameTest"]
+  },
+  "depends": { "rlcar": "*" }
+}

@@ -1,0 +1,23 @@
+{
+  "item.rlcar.car": "RL Car",
+  "rlcar.onboard": "Press %s to get out",
+  "entity.rlcar.car": "RL Car",
+  "key.category.rlcar.car": "RL Car",
+  "key.category.rlcar.controller": "RL Car (Controller)",
+  "key.rlcar.throttle": "Throttle",
+  "key.rlcar.reverse": "Reverse",
+  "key.rlcar.steer_right": "Steer Right",
+  "key.rlcar.steer_left": "Steer Left",
+  "key.rlcar.pitch_up": "Pitch Up",
+  "key.rlcar.pitch_down": "Pitch Down",
+  "key.rlcar.yaw_right": "Yaw Right",
+  "key.rlcar.yaw_left": "Yaw Left",
+  "key.rlcar.air_roll_right": "Air Roll Right",
+  "key.rlcar.air_roll_left": "Air Roll Left",
+  "key.rlcar.air_roll": "Air Roll",
+  "key.rlcar.jump": "Jump",
+  "key.rlcar.boost": "Boost",
+  "key.rlcar.powerslide": "Powerslide (Drift)",
+  "key.rlcar.reset": "Reset Car",
+  "key.rlcar.exit": "Get Out of Car"
+}

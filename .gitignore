@@ -4,3 +4,13 @@
 *.exe
 *.pdb
 /validation/*.core.csv
+
+# Extracted Rocket League assets (tools/rl_assets/extract.py): local use only, never commit.
+/assets/rl/
+
+# Minecraft mod (minecraft/): Gradle output, dev game directories.
+/minecraft/.gradle/
+/minecraft/build/
+/minecraft/run/
+/minecraft/run-selftest/
+notify.log

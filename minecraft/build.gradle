@@ -1,0 +1,114 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	runs {
+		client {
+			vmArgs "--enable-native-access=ALL-UNNAMED"
+		}
+		server {
+			vmArgs "--enable-native-access=ALL-UNNAMED"
+		}
+		// Headless check of the whole server path: `gradlew runSelftest`.
+		selftest {
+			server()
+			name "Self-test"
+			runDir "run-selftest"
+			vmArgs "--enable-native-access=ALL-UNNAMED"
+			property "rlcar.selftest", "true"
+		}
+	}
+
+	mods {
+		"rlcar" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+// ---------------------------------------------------------------------------------------------
+// Native physics library (crates/rl_car_ffi), built with cargo and bundled into the jar under
+// natives/<os>-<arch>/. Only the host platform is built here; see README for other targets.
+
+def repoRoot = rootDir.parentFile
+def nativeOut = layout.buildDirectory.dir("generated/natives")
+
+def hostOs = { ->
+	def os = System.getProperty("os.name").toLowerCase()
+	if (os.contains("win")) return "windows"
+	if (os.contains("mac")) return "macos"
+	return "linux"
+}
+def hostArch = { ->
+	def a = System.getProperty("os.arch").toLowerCase()
+	return (a == "aarch64" || a == "arm64") ? "aarch64" : "x86_64"
+}
+def libName = { String os ->
+	os == "windows" ? "rl_car_ffi.dll" : (os == "macos" ? "librl_car_ffi.dylib" : "librl_car_ffi.so")
+}
+
+tasks.register("cargoBuildNative", Exec) {
+	workingDir repoRoot
+	commandLine "cargo", "build", "-p", "rl_car_ffi", "--release"
+	inputs.dir(new File(repoRoot, "crates/rl_car_core/src"))
+	inputs.dir(new File(repoRoot, "crates/rl_car_ffi/src"))
+	inputs.file(new File(repoRoot, "crates/rl_car_ffi/Cargo.toml"))
+	outputs.file(new File(repoRoot, "target/release/" + libName(hostOs())))
+}
+
+tasks.register("copyNative", Copy) {
+	dependsOn "cargoBuildNative"
+	from(new File(repoRoot, "target/release/" + libName(hostOs())))
+	into(nativeOut.map { it.dir("natives/" + hostOs() + "-" + hostArch()) })
+}
+
+sourceSets.main.resources.srcDir(nativeOut)
+tasks.named("processResources") { dependsOn "copyNative" }
+
+processResources {
+	def version = project.version
+	inputs.property "version", version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+// End-to-end client test (`gradlew runClientGameTest`): starts the real game, drives a car with
+// simulated key presses and saves screenshots under build/run/clientGameTest/screenshots.
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = "rlcar-test"
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = true
+	}
+}
+
+// The real car models are read from the local extraction (assets/rl, git-ignored; see
+// tools/rl_assets) in development runs. They are never bundled into the jar.
+loom.runs.configureEach {
+	if (name == "client" || name == "clientGameTest") {
+		property "rlcar.assets", new File(rootDir.parentFile, "assets/rl").absolutePath
+	}
+}

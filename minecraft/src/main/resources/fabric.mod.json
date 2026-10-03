@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "rlcar",
+  "version": "${version}",
+  "name": "RL Car",
+  "description": "Drivable Rocket League-style car physics in Minecraft, powered by a Rust reimplementation of the game's car model. Unofficial fan project, not affiliated with Psyonix or Epic Games.",
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.rlcar.RlCar"],
+    "client": ["dev.rlcar.client.RlCarClient"]
+  },
+  "mixins": [
+    { "config": "rlcar.client.mixins.json", "environment": "client" }
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
