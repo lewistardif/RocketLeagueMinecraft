@@ -7,6 +7,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A car plus the block geometry around it. Used by the server (cars nobody drives) and by the
@@ -36,6 +37,7 @@ public final class CarSim implements AutoCloseable {
 	private int snapshotHash;
 	private float[] boxes = new float[6 * 256];
 	private final float[] poseBuffer = new float[RlCarNative.POSE_FLOATS];
+	private @Nullable NativeCamera camera;
 
 	public CarSim(int preset, BlockPos origin) {
 		this.car = new NativeCar(preset);
@@ -53,6 +55,9 @@ public final class CarSim implements AutoCloseable {
 		float[] p = Space.toRl(this.origin, pos.x, pos.y, pos.z);
 		this.car.reset(p[0], p[1], p[2], Space.yawToRl(mcYaw), 0, 0);
 		this.snapshotCenter = null;
+		if (this.camera != null) {
+			this.camera.reset();
+		}
 	}
 
 	/** Loads a state saved by {@link #save} for a car whose origin was {@code origin}. */
@@ -62,6 +67,9 @@ public final class CarSim implements AutoCloseable {
 		}
 		this.origin = origin;
 		this.snapshotCenter = null;
+		if (this.camera != null) {
+			this.camera.reset();
+		}
 		return true;
 	}
 
@@ -106,6 +114,25 @@ public final class CarSim implements AutoCloseable {
 		return this.car.alpha();
 	}
 
+	/** The next {@link #camera} call starts over from the car's pose. */
+	public void resetCamera() {
+		if (this.camera != null) {
+			this.camera.reset();
+		}
+	}
+
+	/**
+	 * Advances Rocket League's camera following this car (created on first use) by {@code dt}
+	 * seconds and writes its view ({@link RlCarNative#CAMERA_VIEW_FLOATS} floats, RL space relative
+	 * to {@link #origin()}) into {@code out}. See {@link NativeCamera#update}.
+	 */
+	public boolean camera(float dt, float[] settings, float lookRight, float lookUp, int flags, float[] out) {
+		if (this.camera == null) {
+			this.camera = new NativeCamera();
+		}
+		return this.camera.update(this.car, this.car.alpha(), dt, settings, lookRight, lookUp, flags, out);
+	}
+
 	/**
 	 * Hash of the block geometry currently around the car; changes when blocks there change.
 	 * Retakes the snapshot.
@@ -124,6 +151,9 @@ public final class CarSim implements AutoCloseable {
 			// Same physical place, new origin: shift the car by the whole-block difference.
 			float[] delta = Space.toRl(BlockPos.ZERO, d.getX(), d.getY(), d.getZ());
 			this.car.translate(delta[0], delta[1], delta[2]);
+			if (this.camera != null) {
+				this.camera.translate(delta[0], delta[1], delta[2]);
+			}
 			this.origin = next;
 			this.snapshotCenter = null;
 		}
@@ -187,5 +217,8 @@ public final class CarSim implements AutoCloseable {
 	public void close() {
 		this.car.close();
 		this.world.close();
+		if (this.camera != null) {
+			this.camera.close();
+		}
 	}
 }

@@ -22,6 +22,7 @@ use bevy::prelude::*;
 use collision::{ArenaColliderQuery, AvianWorld};
 use convert::*;
 use rl_car_core::maneuvers::{HalfFlip, Maneuver};
+use rl_car_core::camera::{CameraSettings, CameraTarget, CarCamera};
 use rl_car_core::{CarState, Controls, FixedStepper, HitboxPreset, RotMat, Vec3 as RVec3};
 use visuals::{CarVisuals, RealBody, Team};
 
@@ -154,7 +155,7 @@ fn showcase(mut commands: Commands, time: Res<Time>, mut sc: ResMut<Showcase>, m
     if sim.preset != preset || visuals.team != team {
         sim.preset = preset;
         visuals.team = team;
-        sim.stepper.reset(spawn_state(preset));
+        sim.respawn(spawn_state(preset));
         sc.wait = 0.0;
     }
     sc.wait += time.delta_secs();
@@ -167,7 +168,7 @@ fn showcase(mut commands: Commands, time: Res<Time>, mut sc: ResMut<Showcase>, m
         if let Some((p, t)) = (sc.step < SHOWCASE_STEPS).then(|| Showcase::step_car(sc.step)) {
             sim.preset = p;
             visuals.team = t;
-            sim.stepper.reset(spawn_state(p));
+            sim.respawn(spawn_state(p));
         }
     }
 }
@@ -184,11 +185,18 @@ struct Sim {
     ticks_last_frame: u32,
     /// Testing aid: keep the boost tank full (toggle with I).
     infinite_boost: bool,
+    /// Bumped on every teleport, so the camera starts over instead of swinging across the map.
+    respawns: u32,
 }
 
 impl Sim {
     fn new(preset: HitboxPreset) -> Sim {
-        Sim { stepper: FixedStepper::new(spawn_state(preset)), preset, maneuver: None, last_input: Controls::default(), frames: 0, ticks_last_frame: 0, infinite_boost: true }
+        Sim { stepper: FixedStepper::new(spawn_state(preset)), preset, maneuver: None, last_input: Controls::default(), frames: 0, ticks_last_frame: 0, infinite_boost: true, respawns: 0 }
+    }
+
+    fn respawn(&mut self, state: CarState) {
+        self.stepper.reset(state);
+        self.respawns += 1;
     }
 }
 
@@ -278,7 +286,7 @@ fn layout_body(preset: HitboxPreset, children: &Children, q: &mut Query<(&mut Tr
 }
 
 fn spawn_camera(mut commands: Commands) {
-    commands.spawn((Camera3d::default(), Projection::Perspective(PerspectiveProjection { fov: 100f32.to_radians() * 0.75, ..default() }), Transform::from_xyz(0.0, 3.0, -38.0).looking_at(Vec3::new(0.0, 0.5, -30.0), Vec3::Y)));
+    commands.spawn((Camera3d::default(), Projection::Perspective(PerspectiveProjection::default()), Transform::from_xyz(0.0, 3.0, -38.0).looking_at(Vec3::new(0.0, 0.5, -30.0), Vec3::Y)));
 }
 
 fn spawn_hud(mut commands: Commands) {
@@ -306,12 +314,12 @@ fn hotkeys(keys: Res<ButtonInput<KeyCode>>, mut sim: ResMut<Sim>, mut visuals: R
         if keys.just_pressed(key) {
             sim.preset = preset;
             let s = spawn_state(preset);
-            sim.stepper.reset(s);
+            sim.respawn(s);
         }
     }
     if keys.just_pressed(KeyCode::KeyR) {
         let s = spawn_state(sim.preset);
-        sim.stepper.reset(s);
+        sim.respawn(s);
         sim.maneuver = None;
     }
     if keys.just_pressed(KeyCode::KeyH) {
@@ -335,7 +343,7 @@ fn simulate(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&G
     let input = input::read_controls(&keys, &gamepads);
     let scripted = autopilot.enabled;
     if scripted && sim.stepper.tick_count == 0 {
-        sim.stepper.reset(Autopilot::start_state());
+        sim.respawn(Autopilot::start_state());
     }
     sim.last_input = if scripted { Autopilot::controls(sim.stepper.tick_count as f32 * rl_car_core::TICK_DT) } else { input };
 
@@ -362,7 +370,7 @@ fn simulate(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&G
     // Fell out of the world (e.g. tunnelled through geometry at a seam): respawn.
     if sim.stepper.current.position.z < -500.0 {
         let s = spawn_state(sim.preset);
-        sim.stepper.reset(s);
+        sim.respawn(s);
     }
 }
 
@@ -433,48 +441,59 @@ fn sync_wheels(time: Res<Time>, sim: Res<Sim>, visuals: Res<CarVisuals>, mut whe
     }
 }
 
-#[derive(Resource)]
+/// Rocket League's car camera (`rl_car_core::camera`) and the player's camera settings.
+#[derive(Resource, Default)]
 struct CameraRig {
-    pos: Vec3,
-    look: Vec3,
-    up: Vec3,
+    camera: CarCamera,
+    /// Index into `CameraSettings::PRESETS` (C cycles).
+    preset: usize,
+    settings: CameraSettings,
+    respawns: u32,
 }
 
-impl Default for CameraRig {
-    fn default() -> Self {
-        CameraRig { pos: Vec3::new(0.0, 3.0, -38.0), look: Vec3::new(0.0, 0.5, -30.0), up: Vec3::Y }
-    }
-}
-
-fn follow_camera(time: Res<Time>, car: Query<&Transform, With<CarRoot>>, mut cam: Query<&mut Transform, (With<Camera3d>, Without<CarRoot>)>, mut rig: ResMut<CameraRig>, sim: Res<Sim>, showcase: Res<Showcase>) {
-    let (Ok(car), Ok(mut cam)) = (car.single(), cam.single_mut()) else { return };
+fn follow_camera(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    gamepads: Query<&Gamepad>,
+    car: Query<&Transform, With<CarRoot>>,
+    mut cam: Query<(&mut Transform, &mut Projection), (With<Camera3d>, Without<CarRoot>)>,
+    mut rig: ResMut<CameraRig>,
+    sim: Res<Sim>,
+    showcase: Res<Showcase>,
+) {
+    let (Ok(car), Ok((mut cam, mut projection))) = (car.single(), cam.single_mut()) else { return };
     if showcase.dir.is_some() {
         let (fwd, right) = (car.rotation * Vec3::X, car.rotation * Vec3::Z);
         *cam = Transform::from_translation(car.translation + fwd * 1.8 + right * 1.4 + Vec3::Y * 0.6).looking_at(car.translation + Vec3::Y * 0.15, Vec3::Y);
         return;
     }
-    let s = &sim.stepper.current;
-    let fwd = car.rotation * Vec3::X;
-    let car_up = car.rotation * Vec3::Y;
-    // On a surface (floor, wall, ceiling): chase in the car's own frame, so wall driving reads
-    // like floor driving. In the air: world-up chase behind the direction of travel.
-    let (heading, up) = if s.on_ground {
-        (fwd, car_up)
-    } else {
-        let vel = dir_to_bevy(s.velocity) / UU_PER_M;
-        let flat = if vel.length() > 5.0 { Vec3::new(vel.x, 0.0, vel.z) } else { Vec3::new(fwd.x, 0.0, fwd.z) };
-        (flat.try_normalize().unwrap_or(Vec3::Z), Vec3::Y)
-    };
-    let target_pos = car.translation - heading * 2.8 + up * 1.1;
-    let target_look = car.translation + heading * 1.5 + up * 0.35;
-    let k = 1.0 - (-12.0 * time.delta_secs()).exp();
-    rig.pos = rig.pos.lerp(target_pos, k);
-    rig.look = rig.look.lerp(target_look, k);
-    rig.up = rig.up.lerp(up, 1.0 - (-6.0 * time.delta_secs()).exp()).normalize();
-    *cam = Transform::from_translation(rig.pos).looking_at(rig.look, rig.up);
+    if keys.just_pressed(KeyCode::KeyC) {
+        rig.preset = (rig.preset + 1) % CameraSettings::PRESETS.len();
+        rig.settings = CameraSettings::PRESETS[rig.preset].1;
+    }
+    if rig.respawns != sim.respawns {
+        rig.respawns = sim.respawns;
+        rig.camera.reset();
+    }
+    let target = CameraTarget::interpolated(&sim.stepper.previous, &sim.stepper.current, sim.stepper.alpha());
+    let input = input::read_camera_input(&mouse, &gamepads);
+    let settings = rig.settings;
+    let view = rig.camera.update(&target, &input, &settings, time.delta_secs());
+
+    let mut location = view.location;
+    // Camera_TA.ClipToField: never below 10 uu above the field floor.
+    location.z = location.z.max(10.0);
+    let o = view.orientation;
+    // Bevy cameras look down local -Z with +Y up and +X right.
+    let basis = Mat3::from_cols(dir_to_bevy(o.right()), dir_to_bevy(o.up()), -dir_to_bevy(o.forward()));
+    *cam = Transform::from_translation(pos_to_bevy(location)).with_rotation(Quat::from_mat3(&basis).normalize());
+    if let Projection::Perspective(p) = &mut *projection {
+        p.fov = view.vertical_fov();
+    }
 }
 
-fn update_hud(sim: Res<Sim>, diagnostics: Res<Time>, mut hud: Query<&mut Text, With<Hud>>) {
+fn update_hud(sim: Res<Sim>, rig: Res<CameraRig>, diagnostics: Res<Time>, mut hud: Query<&mut Text, With<Hud>>) {
     let Ok(mut text) = hud.single_mut() else { return };
     let s = &sim.stepper.current;
     let speed = s.velocity.length();
@@ -486,10 +505,12 @@ fn update_hud(sim: Res<Sim>, diagnostics: Res<Time>, mut hud: Query<&mut Text, W
          boost: {:>3.0}{}   on ground: {}   wheels: {}\n\
          jumped: {}  double: {}  flipped: {}  {}\n\
          input  thr {:+.1} steer {:+.1} pitch {:+.1} yaw {:+.1} roll {:+.1} {}{}{}\n\
-         {:.0} fps, {} physics ticks/frame (120 Hz)\n\n\
+         {:.0} fps, {} physics ticks/frame (120 Hz)\n\
+         camera: {} (FOV {:.0}, distance {:.0}, height {:.0}, angle {:.0}, stiffness {:.2}, swivel {:.1})\n\n\
          W/S throttle+pitch  A/D steer+yaw  Q/E air roll  Space jump\n\
          Shift boost  Ctrl powerslide/air roll  H half-flip  R reset  1-7 hitbox\n\
-         T team  I infinite boost",
+         T team  I infinite boost  C camera preset\n\
+         gamepad right stick: swivel camera   R3 / middle mouse: rear view",
         sim.preset,
         speed,
         speed * 0.036,
@@ -512,5 +533,12 @@ fn update_hud(sim: Res<Sim>, diagnostics: Res<Time>, mut hud: Query<&mut Text, W
         if c.handbrake { "H" } else { "" },
         fps,
         sim.ticks_last_frame,
+        CameraSettings::PRESETS[rig.preset].0,
+        rig.settings.fov,
+        rig.settings.distance,
+        rig.settings.height,
+        rig.settings.angle,
+        rig.settings.stiffness,
+        rig.settings.swivel_speed,
     );
 }

@@ -91,6 +91,7 @@ public final class PadBinds {
 		JUMP("jump", Input.A),
 		BOOST("boost", Input.B),
 		POWERSLIDE("powerslide", Input.X),
+		REAR_CAMERA("rear_camera", Input.RS),
 		RESET("reset", Input.Y),
 		EXIT("exit", Input.BACK);
 

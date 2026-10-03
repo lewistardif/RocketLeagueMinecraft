@@ -17,11 +17,12 @@ pub mod snapshot;
 
 pub use box_world::{Aabb, BoxWorld, Face};
 
+use rl_car_core::camera::{CameraInput, CameraSettings, CameraTarget, CarCamera};
 use rl_car_core::{CarState, Controls, FixedStepper, HitboxPreset, Mat3, Quat, RotMat, TICK_DT, Vec3, step_with};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped whenever a signature or a buffer layout below changes.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 
 /// Floats written by [`rlcar_car_pose`]:
 ///
@@ -418,6 +419,145 @@ pub unsafe extern "C" fn rlcar_preset_hitbox(preset: u32, out: *mut f32) {
     }
 }
 
+// ------------------------------------------------------------------------------------ camera
+
+/// Floats read from the `settings` argument of [`rlcar_camera_update`] and written by
+/// [`rlcar_camera_preset`] (Rocket League's camera settings, see [`CameraSettings`]):
+/// FOV, height, angle, distance, stiffness, swivel speed, transition speed, invert swivel pitch
+/// (0 or 1).
+pub const CAMERA_SETTINGS_FLOATS: usize = 8;
+
+/// Floats written by [`rlcar_camera_update`]:
+///
+/// | index | content |
+/// |---|---|
+/// | 0..3 | camera position (uu) |
+/// | 3..12 | camera axes, columns = forward (view direction), right, up |
+/// | 12 | horizontal FOV at 16:9 (degrees) |
+/// | 13 | vertical FOV (degrees) |
+/// | 14..17 | focus point (uu) |
+pub const CAMERA_VIEW_FLOATS: usize = 17;
+
+/// Bits of the `flags` argument of [`rlcar_camera_update`].
+pub mod camera_flags {
+    /// Rocket League's "Rear Camera" (look behind) is held.
+    pub const REAR_VIEW: u32 = 1 << 0;
+}
+
+fn settings_from(f: &[f32]) -> CameraSettings {
+    CameraSettings {
+        fov: f[0],
+        height: f[1],
+        angle: f[2],
+        distance: f[3],
+        stiffness: f[4],
+        swivel_speed: f[5],
+        transition_speed: f[6],
+        invert_swivel_pitch: f[7] != 0.0,
+    }
+    .clamped()
+}
+
+fn settings_to(s: &CameraSettings, out: &mut [f32]) {
+    out.copy_from_slice(&[s.fov, s.height, s.angle, s.distance, s.stiffness, s.swivel_speed, s.transition_speed, s.invert_swivel_pitch as u32 as f32]);
+}
+
+/// A new Rocket League car camera (`rl_car_core::camera`). Free with [`rlcar_camera_free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn rlcar_camera_new() -> *mut CarCamera {
+    Box::into_raw(Box::new(CarCamera::new()))
+}
+
+/// # Safety
+/// `camera` must come from [`rlcar_camera_new`] and not be used afterwards (null is ignored).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_camera_free(camera: *mut CarCamera) {
+    if !camera.is_null() {
+        drop(unsafe { Box::from_raw(camera) });
+    }
+}
+
+/// Starts the camera over from the car's pose on its next update (after a teleport).
+///
+/// # Safety
+/// `camera` is null or valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_camera_reset(camera: *mut CarCamera) {
+    if let Some(c) = unsafe { camera.as_mut() } {
+        c.reset();
+    }
+}
+
+/// Moves the camera by `delta` (3 floats, uu), for hosts that shift their origin together with
+/// the car's ([`rlcar_car_translate`]).
+///
+/// # Safety
+/// `camera` is null or valid; `delta` points to 3 readable floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_camera_translate(camera: *mut CarCamera, delta: *const f32) {
+    let Some(c) = (unsafe { camera.as_mut() }) else { return };
+    if delta.is_null() {
+        return;
+    }
+    let d = unsafe { std::slice::from_raw_parts(delta, 3) };
+    c.translate(Vec3::new(d[0], d[1], d[2]));
+}
+
+/// Advances the camera by `dt` seconds (one rendered frame) following `car` interpolated `alpha`
+/// of the way through its last tick, and writes [`CAMERA_VIEW_FLOATS`] floats to `out`.
+/// `look_right` / `look_up` are the swivel inputs (-1..1, right stick after its deadzone, up
+/// positive); `flags` are [`camera_flags`]. Returns 1, or 0 if nothing was written.
+///
+/// # Safety
+/// `camera` and `car` are null or valid; `settings` points to [`CAMERA_SETTINGS_FLOATS`] readable
+/// floats; `out` to [`CAMERA_VIEW_FLOATS`] writable floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_camera_update(
+    camera: *mut CarCamera,
+    car: *const Car,
+    alpha: f32,
+    dt: f32,
+    settings: *const f32,
+    look_right: f32,
+    look_up: f32,
+    flags: u32,
+    out: *mut f32,
+) -> u32 {
+    let (Some(cam), Some(car)) = (unsafe { camera.as_mut() }, unsafe { car.as_ref() }) else { return 0 };
+    if settings.is_null() || out.is_null() {
+        return 0;
+    }
+    let settings = settings_from(unsafe { std::slice::from_raw_parts(settings, CAMERA_SETTINGS_FLOATS) });
+    let out = unsafe { std::slice::from_raw_parts_mut(out, CAMERA_VIEW_FLOATS) };
+    guard(0, || {
+        let target = CameraTarget::interpolated(&car.stepper.previous, &car.stepper.current, alpha);
+        let input = CameraInput { look_right, look_up, rear_view: flags & camera_flags::REAR_VIEW != 0 };
+        let v = cam.update(&target, &input, &settings, dt);
+        out[0..3].copy_from_slice(&v.location.to_array());
+        for i in 0..3 {
+            out[3 + i * 3..6 + i * 3].copy_from_slice(&v.orientation.0.col(i).to_array());
+        }
+        out[12] = v.fov;
+        out[13] = v.vertical_fov().to_degrees();
+        out[14..17].copy_from_slice(&v.focus.to_array());
+        1
+    })
+}
+
+/// Writes Rocket League's camera preset `index` (Default, Balanced, Wide, Custom, Legacy, Modern)
+/// as [`CAMERA_SETTINGS_FLOATS`] floats. Returns the number of presets; nothing is written when
+/// `index` is out of range.
+///
+/// # Safety
+/// `out` points to [`CAMERA_SETTINGS_FLOATS`] writable floats (or is null).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_camera_preset(index: u32, out: *mut f32) -> u32 {
+    if let (Some((_, s)), false) = (CameraSettings::PRESETS.get(index as usize), out.is_null()) {
+        settings_to(s, unsafe { std::slice::from_raw_parts_mut(out, CAMERA_SETTINGS_FLOATS) });
+    }
+    CameraSettings::PRESETS.len() as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,4 +642,37 @@ mod tests {
             assert_eq!(rlcar_car_pose(std::ptr::null(), 0.0, pose.as_mut_ptr()), 0);
         }
     }
+
+    #[test]
+    fn c_api_camera_follows_the_car() {
+        unsafe {
+            let car = rlcar_car_new(0);
+            rlcar_car_reset(car, [0.0f32, 0.0, 17.0].as_ptr(), 0.0, 0.0, 0.0);
+            let cam = rlcar_camera_new();
+            let mut settings = [0.0f32; CAMERA_SETTINGS_FLOATS];
+            assert_eq!(rlcar_camera_preset(0, settings.as_mut_ptr()), 6);
+            assert_eq!(settings, [90.0, 100.0, -3.0, 270.0, 0.5, 2.5, 1.0, 0.0]);
+            let mut view = [0.0f32; CAMERA_VIEW_FLOATS];
+            for _ in 0..60 {
+                assert_eq!(rlcar_camera_update(cam, car, 1.0, 1.0 / 60.0, settings.as_ptr(), 0.0, 0.0, 0, view.as_mut_ptr()), 1);
+            }
+            // Behind (-X) and above the car, looking forward, Rocket League's FOV.
+            assert!(view[0] < -250.0 && view[2] > 100.0, "{view:?}");
+            assert!(view[3] > 0.99);
+            assert_eq!(view[12], 90.0);
+            assert!((view[13] - 58.72).abs() < 0.01);
+            // Rear view: in front, looking back.
+            rlcar_camera_update(cam, car, 1.0, 1.0 / 60.0, settings.as_ptr(), 0.0, 0.0, camera_flags::REAR_VIEW, view.as_mut_ptr());
+            assert!(view[0] > 250.0 && view[3] < -0.99, "{view:?}");
+            let before = view[0];
+            rlcar_camera_translate(cam, [100.0f32, 0.0, 0.0].as_ptr());
+            rlcar_car_translate(car, [100.0f32, 0.0, 0.0].as_ptr());
+            rlcar_camera_update(cam, car, 1.0, 0.0, settings.as_ptr(), 0.0, 0.0, camera_flags::REAR_VIEW, view.as_mut_ptr());
+            assert!((view[0] - before - 100.0).abs() < 0.01);
+            assert_eq!(rlcar_camera_update(cam, std::ptr::null(), 1.0, 0.0, settings.as_ptr(), 0.0, 0.0, 0, view.as_mut_ptr()), 0);
+            rlcar_camera_free(cam);
+            rlcar_car_free(car);
+        }
+    }
 }
+

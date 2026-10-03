@@ -41,8 +41,20 @@ chain so they don't shimmer at a distance.
 
 In game: take **RL Car** from the *Tools & Utilities* creative tab and use it on a block. Sneak
 while placing it to get an orange car. Or run `/rlcar spawn [octane|dominus|plank|breakout|hybrid|merc|psyclops] [blue|orange]`.
-Right-click the car to get in. The camera switches to Rocket League's chase cam; F5 cycles to a
-hood cam.
+Right-click the car to get in. The camera switches to Rocket League's car camera (the same one as
+the Bevy demo, see the root README); F5 cycles to a hood cam.
+
+#### Camera
+
+Options > Controls > **RL Car Camera...** has Rocket League's camera settings, with its ranges
+and presets: Preset (Default, Balanced, Wide, Legacy, Modern; moving a slider makes it Custom),
+Field of View, Distance, Height, Angle, Stiffness, Swivel Speed, Invert Swivel Pitch and Rear
+Camera Toggle. They are saved in `config/rlcar-camera.properties`. In the car camera, the Field of View setting replaces
+Minecraft's (it is Rocket League's horizontal FOV at 16:9, so 90 looks like Minecraft's 59).
+The right stick swivels the camera around the car. Rear Camera works as in Rocket League: it
+looks behind while held, or with Rear Camera Toggle on, each press switches between looking behind
+and forward. Getting into a car always starts facing forward. Unlike Rocket
+League's see-through arena walls, blocks pull the camera in towards the car.
 
 Boost is unlimited for now (Rocket League's "Unlimited" boost mutator): the tank stays full.
 
@@ -63,6 +75,8 @@ defaults, Boost on left click and Jump on right click, work fine).
 | Jump | Space | A | jump (hold = higher, press again = double jump, or dodge in the stick/key direction) |
 | Boost | Left Shift | B | boost |
 | Powerslide (Drift) | Left Ctrl | X | powerslide |
+| Rear Camera | middle click | R3 | look behind while held (each press switches, with Rear Camera Toggle) |
+| (camera swivel) | | right stick | swivel the camera around the car |
 | Reset Car | R | Y | put the car back on its wheels |
 | Get Out of Car | F | Back | get out |
 
@@ -72,14 +86,15 @@ its own, for example pitch to the arrow keys. The Controls screen does not mark 
 pairs as conflicts, nor a car binding on a key whose vanilla action is off while driving (walking,
 Jump, Sneak, Sprint, Drop, Inventory, Swap Hands, Attack, Use, Pick Block). Any other shared key is
 still marked. Rocket League's ball cam, scoreboard and chat bindings have nothing to act on here
-yet, so they are not listed.
+yet, so they are not listed. Rocket League also swivels the camera with the mouse; that is left
+out here, because the mouse already turns the player.
 
 #### Controller bindings
 
 Below the keys, the **RL Car (Controller)** section rebinds the gamepad the same way: click an
 action's button, then press any button or trigger on the controller (Escape unbinds it, a click
-cancels). Every action in the gamepad column above can be moved, except the left stick, which always
-steers on the ground and pitches/yaws in the air. A trigger gives partial values for Throttle,
+cancels). Every action in the gamepad column above can be moved, except the sticks: the left one
+always steers on the ground and pitches/yaws in the air, the right one swivels the camera. A trigger gives partial values for Throttle,
 Reverse and Air Roll Left/Right, and counts as pressed past halfway for Jump, Boost and the other
 on/off actions. Button names follow the connected controller (A/B/X/Y or Cross/Circle/Square/Triangle).
 As in Rocket League, Powerslide and Air Roll share X by default; any other button used twice is
@@ -132,8 +147,9 @@ Rust → pose). It checks the rest height (0.17 blocks, RL's 17 uu), driving str
 seams, stopping at a block wall on throttle, climbing that wall (never entering it) on boost, the
 full jump height (2.3 blocks) and the save/load round trip.
 `runClientGameTest` opens a game window, checks the RL Car bindings (order, conflict rules), then
-drives with simulated key presses (Boost rebound to left click, Air Roll, Reset Car included) and
-checks the client, the server and the camera. It ends with a row of all 7 bodies, and saves screenshots to
+drives with simulated key presses (Boost rebound to left click, Air Roll, Rear Camera, Reset Car
+included) and checks the client, the server and the camera (Rocket League's position and FOV,
+staying level while the car rolls, the rear view, the camera settings screen). It ends with a row of all 7 bodies, and saves screenshots to
 `build/run/clientGameTest/screenshots/`.
 
 ## Limitations

@@ -15,6 +15,7 @@ public final class RlCarClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		CarKeys.register();
 		PadBinds.load();
+		CameraSettings.load();
 		EntityRendererRegistry.register(RlCar.CAR, CarRenderer::new);
 		HudElementRegistry.addLast(RlCar.id("car_hud"), CarHud::draw);
 
