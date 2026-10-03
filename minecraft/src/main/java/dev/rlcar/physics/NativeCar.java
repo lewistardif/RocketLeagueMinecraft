@@ -117,6 +117,10 @@ public final class NativeCar implements AutoCloseable {
 		}
 	}
 
+	MemorySegment handle() {
+		return this.handle;
+	}
+
 	public int preset() {
 		try {
 			return (int) RlCarNative.CAR_PRESET.invokeExact(this.handle);

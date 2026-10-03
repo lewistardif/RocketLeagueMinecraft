@@ -22,12 +22,15 @@ import org.lwjgl.sdl.SDLStdinc;
  * <p>As in Rocket League, ground and air controls are separate bindings that share keys by
  * default: W is Throttle and Pitch Down, S is Reverse and Pitch Up, A/D are Steer and Yaw, and
  * Powerslide and Air Roll are both Left Ctrl. Any of them can be split onto other keys or mouse
- * buttons. Holding Air Roll turns the yaw input into roll. Reset Car and Get Out are this mod's
- * own; Rocket League's ball cam, scoreboard and chat bindings have nothing to act on here yet.
+ * buttons. Holding Air Roll turns the yaw input into roll. Rear Camera looks behind while held
+ * (or switches, with Rear Camera Toggle).
+ * Reset Car and Get Out are this mod's own; Rocket League's ball cam, scoreboard and chat bindings
+ * have nothing to act on here yet.
  *
- * <p>Gamepad: the left stick steers and aims in the air; the buttons and triggers are rebindable
- * (see {@link PadBinds}). Defaults (Xbox layout, as in the Bevy demo): RT/LT, A jump, B boost, X
- * powerslide and air roll, LB/RB air roll left/right, Y reset, Back get out.
+ * <p>Gamepad: the left stick steers and aims in the air, the right stick swivels the camera; the
+ * buttons and triggers are rebindable (see {@link PadBinds}). Defaults (Xbox layout, as in the
+ * Bevy demo): RT/LT, A jump, B boost, X powerslide and air roll, LB/RB air roll left/right, R3 rear
+ * camera, Y reset, Back get out.
  */
 public final class CarKeys {
 	private static final KeyMapping.Category CATEGORY = KeyMapping.Category.register(RlCar.id("car"));
@@ -48,12 +51,18 @@ public final class CarKeys {
 	public static final KeyMapping JUMP = key("jump", InputConstants.KEY_SPACE);
 	public static final KeyMapping BOOST = key("boost", InputConstants.KEY_LSHIFT);
 	public static final KeyMapping POWERSLIDE = key("powerslide", InputConstants.KEY_LCONTROL);
+	/**
+	 * Rocket League's "Rear Camera": look behind while held, or press to switch with Rear Camera
+	 * Toggle on (Options > Controls > RL Car Camera). Middle click, as in its Standard and Legacy
+	 * PC presets (its other preset uses Left Ctrl, which is Powerslide here).
+	 */
+	public static final KeyMapping REAR_CAMERA = new KeyMapping("key.rlcar.rear_camera", InputConstants.Type.MOUSE, InputConstants.MOUSE_BUTTON_MIDDLE, CATEGORY, order++);
 	public static final KeyMapping RESET = key("reset", InputConstants.KEY_R);
 	public static final KeyMapping EXIT = key("exit", InputConstants.KEY_F);
 
 	public static final List<KeyMapping> ALL = List.of(
 		THROTTLE, REVERSE, STEER_RIGHT, STEER_LEFT, PITCH_UP, PITCH_DOWN, YAW_RIGHT, YAW_LEFT,
-		AIR_ROLL_RIGHT, AIR_ROLL_LEFT, AIR_ROLL, JUMP, BOOST, POWERSLIDE, RESET, EXIT
+		AIR_ROLL_RIGHT, AIR_ROLL_LEFT, AIR_ROLL, JUMP, BOOST, POWERSLIDE, REAR_CAMERA, RESET, EXIT
 	);
 
 	/** Pairs of car bindings meant to share a key (Rocket League's ground/air pairs). */
@@ -171,6 +180,59 @@ public final class CarKeys {
 
 	private static float clamp(float v) {
 		return Math.clamp(v, -1.0F, 1.0F);
+	}
+
+	/** This frame's camera controls: right stick swivel (up positive) and whether the rear view is on. */
+	public record CameraInput(float lookRight, float lookUp, boolean rearView) {
+	}
+
+	/** Rocket League's "behind view": on while Rear Camera is held, or flipped by each press in toggle mode. */
+	private static boolean rearView;
+	private static boolean padRearHeld;
+
+	/** This frame's camera controls. The sticks are ignored while {@code active} is false (a screen is open). */
+	public static CameraInput readCamera(boolean active) {
+		float lookRight = 0;
+		float lookUp = 0;
+		// Presses as events (so a tap shorter than a frame still counts), like Reset Car and Get Out.
+		int presses = 0;
+		while (REAR_CAMERA.consumeClick()) {
+			presses++;
+		}
+		boolean held = REAR_CAMERA.isDown();
+		long pad = active ? gamepad() : 0;
+		if (pad != 0) {
+			try {
+				lookRight = deadzone(SDLGamepad.SDL_GetGamepadAxis(pad, SDLGamepad.SDL_GAMEPAD_AXIS_RIGHTX) / 32767.0F);
+				// SDL stick Y is positive downwards.
+				lookUp = -deadzone(SDLGamepad.SDL_GetGamepadAxis(pad, SDLGamepad.SDL_GAMEPAD_AXIS_RIGHTY) / 32767.0F);
+				boolean padHeld = PadBinds.isDown(pad, PadBinds.Action.REAR_CAMERA);
+				if (padHeld && !padRearHeld) {
+					presses++;
+				}
+				padRearHeld = padHeld;
+				held |= padHeld;
+			} catch (Throwable t) {
+				disableGamepad(t);
+			}
+		}
+		if (!active) {
+			return new CameraInput(0, 0, rearView);
+		}
+		// PlayerController_TA.PressRearCamera / ReleaseRearCamera.
+		boolean toggle = CameraSettings.rearCameraToggle();
+		for (int i = 0; i < presses; i++) {
+			rearView = !toggle || !rearView;
+		}
+		if (!toggle && !held) {
+			rearView = false;
+		}
+		return new CameraInput(clamp(lookRight), clamp(lookUp), rearView);
+	}
+
+	/** Back to the normal view, as Rocket League does for every new car. */
+	public static void resetRearCamera() {
+		rearView = false;
 	}
 
 	/** True once per press of Get Out (key or its gamepad button). */

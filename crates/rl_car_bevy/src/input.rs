@@ -9,9 +9,13 @@
 //!   Left Ctrl    powerslide; in the air, turns A/D into air roll
 //! Gamepad (Xbox layout): left stick steer/pitch/yaw, RT/LT throttle/reverse, A jump, B boost,
 //! X powerslide + free air roll, LB/RB air roll left/right.
+//!
+//! Camera (Rocket League's bindings): right stick swivels, R3 or the middle mouse button holds the
+//! rear view.
 
 use bevy::prelude::*;
 use rl_car_core::Controls;
+use rl_car_core::camera::CameraInput;
 
 const STICK_DEADZONE: f32 = 0.1;
 
@@ -68,4 +72,16 @@ pub fn read_controls(keys: &ButtonInput<KeyCode>, gamepads: &Query<&Gamepad>) ->
         c.handbrake |= pad_c.handbrake;
     }
     c.clamped()
+}
+
+pub fn read_camera_input(mouse: &ButtonInput<MouseButton>, gamepads: &Query<&Gamepad>) -> CameraInput {
+    let mut c = CameraInput { rear_view: mouse.pressed(MouseButton::Middle), ..default() };
+    for pad in gamepads.iter() {
+        let stick = pad.right_stick();
+        let pick = |a: f32, b: f32| if b.abs() > a.abs() { b } else { a };
+        c.look_right = pick(c.look_right, deadzone(stick.x));
+        c.look_up = pick(c.look_up, deadzone(stick.y));
+        c.rear_view |= pad.pressed(GamepadButton::RightThumb);
+    }
+    c
 }

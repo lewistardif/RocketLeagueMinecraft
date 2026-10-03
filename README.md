@@ -63,10 +63,39 @@ cargo run -p rl_car_bevy --release
 | R / 1–7 | | reset / switch hitbox preset |
 | T | | switch team colour (real car models only) |
 | I | | infinite boost on / off (on by default, a temporary testing aid) |
+| | right stick | swivel the camera around the car |
+| middle mouse | R3 (right stick click) | rear camera (look behind) while held |
+| C | | cycle Rocket League's camera presets (Default, Balanced, Wide, Custom, Legacy, Modern) |
 
 `cargo run -p rl_car_bevy --release -- --autopilot <dir>` plays a scripted run (boost, front flip,
 quarter-pipe, back wall, ceiling), saves four screenshots to `<dir>` and exits.
 `-- --showcase <dir>` photographs every car parked, close up, and exits.
+
+### The camera
+
+The camera is Rocket League's own car camera, rebuilt from the game's camera script
+(`CameraState_Car_TA` and `Camera_TA` in `TAGame.upk`) and the tuned values of its camera
+archetypes, in [`crates/rl_car_core/src/camera.rs`](crates/rl_car_core/src/camera.rs). It is
+engine-agnostic (Rocket League space, no dependencies); the Bevy demo and the Minecraft mod both
+use it.
+
+- **On the ground** it looks along the car's heading on the driving surface, 3° down, and smooths
+  fast on the floor and slowly on walls. It stays upright: on walls and the ceiling the car turns
+  sideways or upside down on screen, as in the game. Only 10% of the car's sideways lean rolls it.
+- **In the air** it ignores the car's rotation. It looks at the car from where it is, like a
+  camera on a string, so flips, spins and air rolls leave it pointing forward and it swings
+  round to follow the direction of travel.
+- **Speed** pulls it back (less with more Stiffness) and widens the FOV by up to 5° (10° when
+  supersonic).
+- **Swivel**: the right stick orbits it around the car, up to 123° to each side (99° at 2500 uu/s
+  and above), 30° up and 49° down. It eases there at the Swivel Speed setting and comes back twice
+  as fast. Rear Camera turns it 180°.
+- **Settings**: Rocket League's FOV (horizontal, at 16:9), Distance, Height, Angle, Stiffness,
+  Swivel Speed and Invert Swivel Pitch, with the game's ranges and presets.
+
+Not included: ball cam and free look (there is no ball to target), camera shake, and the bob from
+the car body's visual suspension. Like the game, the camera only keeps 10 uu above the floor and
+can see through walls.
 
 ### Real Rocket League car models (optional)
 
@@ -199,12 +228,13 @@ crates/rl_car_core/       physics core (no dependencies)
   src/world.rs            CollisionWorld trait, PlaneWorld
   src/stepper.rs          fixed 120 Hz accumulator
   src/maneuvers.rs        dodge / half-flip input scripts
+  src/camera.rs           Rocket League's car camera (presentation only)
 crates/rl_car_bevy/       Bevy 0.19 demo + avian3d collision host
   src/visuals.rs          optional real car models (assets/rl), wheel anchors, mipmaps
 tools/rl_assets/          extractor for the real car models from your own game install
 crates/rl_car_validate/   scenarios, comparison, report, regression test
 crates/rl_car_ffi/        C ABI over the core + BoxWorld (seamless collision from voxel boxes)
-minecraft/                Fabric mod: car entity, renderer, chase cam, networking, tests
+minecraft/                Fabric mod: car entity, renderer, camera, networking, tests
 oracle/                   RocketSim oracle (C++), build script
 validation/               scenario files, RocketSim traces, REPORT.md
 CONSTANTS.md              every constant with its source

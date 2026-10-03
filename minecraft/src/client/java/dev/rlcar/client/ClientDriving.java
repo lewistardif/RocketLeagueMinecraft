@@ -42,6 +42,11 @@ public final class ClientDriving {
 		return sim != null ? pose : null;
 	}
 
+	/** The simulation of the car being driven, or null. */
+	public static @Nullable CarSim sim() {
+		return sim;
+	}
+
 	public static boolean isDriving() {
 		return sim != null;
 	}
@@ -83,9 +88,10 @@ public final class ClientDriving {
 			sim = s;
 			car = riding;
 			pending = null;
-			// Rocket League is played from the chase camera; F5 still switches to the hood camera.
+			// Rocket League is played from its car camera; F5 still switches to the hood camera.
 			cameraBefore = mc.options.getCameraType();
 			mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
+			CarKeys.resetRearCamera();
 			// Replaces vanilla's "Press Left Shift to dismount" (Shift is boost here).
 			mc.gui.hud.setOverlayMessage(Component.translatable("rlcar.onboard", CarKeys.EXIT.getTranslatedKeyMessage()), false);
 		}
@@ -114,6 +120,9 @@ public final class ClientDriving {
 			// Do not let presses made outside the car trigger later.
 			CarKeys.consumeExit();
 			CarKeys.consumeReset();
+			while (CarKeys.REAR_CAMERA.consumeClick()) {
+				// middle clicks outside the car (Pick Block) must not flip the view later
+			}
 		}
 	}
 

@@ -2,6 +2,8 @@ package dev.rlcar.test;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.rlcar.RlCar;
+import dev.rlcar.client.CameraSettings;
+import dev.rlcar.client.CameraSettingsScreen;
 import dev.rlcar.client.CarKeys;
 import dev.rlcar.client.ClientDriving;
 import dev.rlcar.client.PadBindEntry;
@@ -18,6 +20,8 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import net.minecraft.client.CameraType;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.options.controls.ControlsScreen;
 import net.minecraft.client.gui.screens.options.controls.KeyBindsList;
 import net.minecraft.client.gui.screens.options.controls.KeyBindsScreen;
 import net.minecraft.core.BlockPos;
@@ -31,8 +35,9 @@ import org.joml.Vector3f;
 
 /**
  * Drives a car in the real game: gets in, boosts (with Boost rebound to the left mouse button, as
- * in Rocket League), jumps, turns, air rolls, resets, gets out, with a screenshot at each step.
- * Fails if the car does not respond the way the physics and the bindings say it should.
+ * in Rocket League), jumps, turns, air rolls, looks behind, resets, gets out, with a screenshot at
+ * each step. Fails if the car or Rocket League's camera does not respond the way the physics and
+ * the bindings say it should.
  */
 public class CarClientGameTest implements FabricClientGameTest {
 	private static final int ROAD_LENGTH = 160;
@@ -77,6 +82,14 @@ public class CarClientGameTest implements FabricClientGameTest {
 			check(rest.has(RlCarNative.FLAG_ON_GROUND), "car rests on its wheels");
 			check(Math.abs(rest.y - (start.getY() + 0.17)) < 0.01, "rest height " + (rest.y - start.getY()));
 			check(rest.boost == 100, "unlimited boost: spawns with a full tank (" + rest.boost + ")");
+			// Rocket League's default camera: 270 uu behind, focus 100 uu above the car, 3 degrees down, FOV 90.
+			CameraState cam = camera(ctx);
+			double behind = 2.70 * Math.cos(Math.toRadians(3));
+			double above = 1.0 + 2.70 * Math.sin(Math.toRadians(3));
+			check(Math.abs(rest.x - cam.position.x - behind) < 0.05 && Math.abs(cam.position.y - rest.y - above) < 0.05 && Math.abs(cam.position.z - rest.z) < 0.05,
+				"camera behind and above the parked car: offset " + cam.position.subtract(rest.position()));
+			check(cam.forward.x > 0.99 && cam.up.y > 0.99, "camera looks along the car: forward " + cam.forward);
+			check(Math.abs(cam.fov - 58.72) < 0.05, "Rocket League's 90 degree (16:9 horizontal) FOV: vertical " + cam.fov);
 			shot(ctx, "1-parked");
 
 			// Throttle + Boost, with Boost rebound to the left mouse button (Rocket League's default).
@@ -127,11 +140,13 @@ public class CarClientGameTest implements FabricClientGameTest {
 			input.holdKey(CarKeys.YAW_RIGHT);
 			ctx.waitTicks(10);
 			CarPose rolled = pose(ctx);
+			CameraState rollCam = camera(ctx);
 			shot(ctx, "5-air-roll");
 			input.releaseKey(CarKeys.YAW_RIGHT);
 			input.releaseKey(CarKeys.AIR_ROLL);
 			check(rolled.up().y < 0.8, "air rolled: up " + rolled.up());
 			check(rolled.forward().dot(forwardBefore) > 0.9, "did not yaw while air rolling: forward " + rolled.forward());
+			check(rollCam.up.y > 0.95 && rollCam.forward.dot(forwardBefore) > 0.8, "camera stays level and forward while the car rolls: up " + rollCam.up + ", forward " + rollCam.forward);
 
 			// Reset Car puts it back on its wheels.
 			ctx.waitTicks(30);
@@ -139,6 +154,25 @@ public class CarClientGameTest implements FabricClientGameTest {
 			ctx.waitTicks(40);
 			CarPose reset = pose(ctx);
 			check(reset.has(RlCarNative.FLAG_ON_GROUND) && reset.up().y > 0.99, "reset upright: up " + reset.up());
+
+			// Rear Camera (middle click) looks behind the car, from in front of it.
+			input.holdKey(CarKeys.REAR_CAMERA);
+			ctx.waitTicks(3);
+			CameraState rear = camera(ctx);
+			shot(ctx, "5b-rear-view");
+			input.releaseKey(CarKeys.REAR_CAMERA);
+			check(rear.forward.dot(reset.forward()) < -0.95, "rear view looks backwards: forward " + rear.forward);
+			ctx.waitTicks(3);
+			check(camera(ctx).forward.dot(reset.forward()) > 0.95, "rear view released");
+			// With Rear Camera Toggle on, each press switches it instead.
+			ctx.runOnClient(mc -> CameraSettings.setRearCameraToggle(true));
+			input.pressKey(CarKeys.REAR_CAMERA);
+			ctx.waitTicks(3);
+			check(camera(ctx).forward.dot(reset.forward()) < -0.95, "Rear Camera Toggle: a press switches to the rear view");
+			input.pressKey(CarKeys.REAR_CAMERA);
+			ctx.waitTicks(3);
+			check(camera(ctx).forward.dot(reset.forward()) > 0.95, "Rear Camera Toggle: the next press switches back");
+			ctx.runOnClient(mc -> CameraSettings.setRearCameraToggle(false));
 
 			// The server sees the car where the client drives it.
 			sp.getConnection().waitForServerboundPackets();
@@ -233,7 +267,46 @@ public class CarClientGameTest implements FabricClientGameTest {
 			PadBinds.resetAll();
 			check(PadBinds.allDefault() && PadBinds.get(PadBinds.Action.BOOST) == PadBinds.Input.B, "controller bindings back to defaults");
 		});
+
+		// Options > Controls has the camera settings; the screen shows Rocket League's sliders.
+		ctx.setScreen(() -> new ControlsScreen(null, Minecraft.getInstance().options));
+		ctx.waitTicks(2);
+		ctx.runOnClient(mc -> check(hasButton(mc.gui.screen(), "RL Car Camera..."), "Controls screen links to the camera settings"));
+		ctx.setScreen(() -> new CameraSettingsScreen(null, Minecraft.getInstance().options));
+		ctx.waitTicks(2);
+		shot(ctx, "0-camera-settings");
+		ctx.runOnClient(mc -> {
+			CameraSettings.applyPreset(2);
+			check(CameraSettings.values()[0] == 110 && CameraSettings.values()[3] == 280, "Wide preset: FOV 110, distance 280");
+			CameraSettings.applyPreset(0);
+			check(CameraSettings.values()[0] == 90 && CameraSettings.values()[3] == 270, "Default preset: FOV 90, distance 270");
+		});
 		ctx.setScreen(() -> null);
+	}
+
+	private static boolean hasButton(net.minecraft.client.gui.screens.Screen screen, String label) {
+		java.util.ArrayDeque<net.minecraft.client.gui.components.events.GuiEventListener> todo = new java.util.ArrayDeque<>(screen.children());
+		while (!todo.isEmpty()) {
+			var c = todo.pop();
+			if (c instanceof Button b && b.getMessage().getString().equals(label)) {
+				return true;
+			}
+			if (c instanceof net.minecraft.client.gui.components.events.ContainerEventHandler parent) {
+				todo.addAll(parent.children());
+			}
+		}
+		return false;
+	}
+
+	/** Where the game camera is this frame (Minecraft space). */
+	private record CameraState(Vec3 position, Vector3f forward, Vector3f up, float fov) {
+	}
+
+	private static CameraState camera(ClientGameTestContext ctx) {
+		return ctx.computeOnClient(mc -> {
+			var c = mc.gameRenderer.mainCamera();
+			return new CameraState(c.position(), c.rotation().transform(new Vector3f(0, 0, -1)), c.rotation().transform(new Vector3f(0, 1, 0)), c.getFov());
+		});
 	}
 
 	private static BlockState road(int z) {

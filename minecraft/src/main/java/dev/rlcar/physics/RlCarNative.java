@@ -35,9 +35,14 @@ import net.fabricmc.loader.api.FabricLoader;
  */
 public final class RlCarNative {
 	/** Must match {@code rl_car_ffi::ABI_VERSION}. */
-	public static final int ABI_VERSION = 2;
+	public static final int ABI_VERSION = 3;
 	/** Must match {@code rl_car_ffi::POSE_FLOATS}. */
 	public static final int POSE_FLOATS = 40;
+	/** Must match {@code rl_car_ffi::CAMERA_SETTINGS_FLOATS}. */
+	public static final int CAMERA_SETTINGS_FLOATS = 8;
+	/** Must match {@code rl_car_ffi::CAMERA_VIEW_FLOATS}. */
+	public static final int CAMERA_VIEW_FLOATS = 17;
+	public static final int CAMERA_REAR_VIEW = 1;
 
 	public static final int FLAG_ON_GROUND = 1;
 	public static final int FLAG_BOOSTING = 1 << 1;
@@ -70,6 +75,12 @@ public final class RlCarNative {
 	static final MethodHandle CAR_PRESET;
 	static final MethodHandle CAR_SET_UNLIMITED_BOOST;
 	static final MethodHandle PRESET_HITBOX;
+	static final MethodHandle CAMERA_NEW;
+	static final MethodHandle CAMERA_FREE;
+	static final MethodHandle CAMERA_RESET;
+	static final MethodHandle CAMERA_TRANSLATE;
+	static final MethodHandle CAMERA_UPDATE;
+	static final MethodHandle CAMERA_PRESET;
 
 	static {
 		SymbolLookup lib = SymbolLookup.libraryLookup(libraryPath(), Arena.global());
@@ -103,6 +114,13 @@ public final class RlCarNative {
 		CAR_PRESET = bind(linker, lib, "rlcar_car_preset", FunctionDescriptor.of(JAVA_INT, ADDRESS));
 		CAR_SET_UNLIMITED_BOOST = bind(linker, lib, "rlcar_car_set_unlimited_boost", FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT));
 		PRESET_HITBOX = bind(linker, lib, "rlcar_preset_hitbox", FunctionDescriptor.ofVoid(JAVA_INT, ADDRESS));
+		CAMERA_NEW = bind(linker, lib, "rlcar_camera_new", FunctionDescriptor.of(ADDRESS));
+		CAMERA_FREE = bind(linker, lib, "rlcar_camera_free", FunctionDescriptor.ofVoid(ADDRESS));
+		CAMERA_RESET = bind(linker, lib, "rlcar_camera_reset", FunctionDescriptor.ofVoid(ADDRESS));
+		CAMERA_TRANSLATE = bind(linker, lib, "rlcar_camera_translate", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS));
+		CAMERA_UPDATE = bind(linker, lib, "rlcar_camera_update",
+			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT, ADDRESS));
+		CAMERA_PRESET = bind(linker, lib, "rlcar_camera_preset", FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS));
 	}
 
 	private RlCarNative() {
