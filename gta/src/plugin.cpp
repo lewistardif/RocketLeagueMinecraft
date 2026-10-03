@@ -179,10 +179,12 @@ struct RlCar {
 				Hash h = MISC::GET_HASH_KEY(name.c_str());
 				if (loadAny(h)) {
 					model = h;
+					log("ball model %s", name.c_str());
 					break;
 				}
 			}
 			if (!model) {
+				log("no ball model could be loaded");
 				removeBall();
 				return false;
 			}
@@ -281,6 +283,8 @@ struct RlCar {
 		world = g_api.cbworld_new(probe.get(), &ProbeWorld::cbRaycast, &ProbeWorld::cbBox, &ProbeWorld::cbSphere);
 		camera = g_api.camera_new();
 		placeAt(at, heading);
+		log("car spawned: model %s, preset %d, team %d, at %.1f %.1f %.1f, model lift %.2f m", g_settings.fallbackModel.c_str(), preset,
+		    team, at.x, at.y, at.z, modelLift);
 		return true;
 	}
 
@@ -583,7 +587,7 @@ void tick() {
 		float speed = std::sqrt(c.pose[12] * c.pose[12] + c.pose[13] * c.pose[13] + c.pose[14] * c.pose[14]);
 		CarView view{&c.frame, c.pose, {}, c.car, c.veh, speed * dt + 10.0f};
 		std::copy(c.hitbox, c.hitbox + 6, view.hitbox);
-		c.interactions.update(g_api, view, g_settings.interact);
+		if (int hits = c.interactions.update(g_api, view, g_settings.interact)) log("hit %d GTA entities at %.0f uu/s", hits, speed);
 		uint32_t b = (drive.jump ? ffi::buttons::JUMP : 0) | (drive.boost ? ffi::buttons::BOOST : 0) |
 		             (drive.handbrake ? ffi::buttons::HANDBRAKE : 0);
 		if (c.ball)
