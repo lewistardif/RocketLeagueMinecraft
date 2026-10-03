@@ -97,12 +97,28 @@ Not included: ball cam and free look (there is no ball to target), camera shake,
 the car body's visual suspension. Like the game, the camera only keeps 10 uu above the floor and
 can see through walls.
 
-### Real Rocket League car models (optional)
+### Real Rocket League car models and boost (optional)
 
 If you own Rocket League, `tools/rl_assets/extract.py` pulls the real car models out of your install
 into `assets/rl/` (git-ignored), and the demo then uses them instead of the placeholder box car. One
 car per hitbox preset: Octane, Dominus, Plank (the Plank-hitbox body `Body_Orion`), Breakout, Hybrid
 (Venom), Merc and Psyclops, each in a blue and an orange variant, with the default OEM wheels.
+
+It also extracts the default boost ("Standard"), shown on those cars exactly as the game builds it:
+- **Flame cones:** the game's cone meshes, placed per car body by the same data the game uses (the
+  `Parent_Boost_Mesh` overrides of each body's `BoostConeMesh` slots; twin cones on the Octane,
+  Dominus, Hybrid and Merc). They are drawn with the boost material's own parameters and textures, and
+  its shading is a line-by-line port of the material's compiled pixel shader, read from the game's
+  shader cache (`crates/rl_car_bevy/src/shaders/boost_flame.wgsl`).
+- **Smoke trail:** the `Boost_Painted_PS` particle system while boosting and `Drive_PS` (small exhaust
+  puffs) while only throttling, emitted from each body's boost sockets. The particles are simulated
+  from the extracted Cascade module data (spawn per distance travelled, lifetimes, sizes, colour and
+  alpha curves, acceleration) and drawn with a port of `SmokePuff_Mat`'s compiled shader.
+- Not reproduced: the boost's lens flare and the glow it puts on the car body (both are drawn by
+  engine code that is not in the packages), and the sound.
+
+The placeholder box car (and a real car when the boost was not extracted) gets a simple flickering
+flame cone instead.
 
 ```bash
 python tools/rl_assets/extract.py --umodel <folder with umodel_64.exe> --upksuite <RL-UPKSuite release folder>
@@ -231,7 +247,10 @@ crates/rl_car_core/       physics core (no dependencies)
   src/camera.rs           Rocket League's car camera (presentation only)
 crates/rl_car_bevy/       Bevy 0.19 demo + avian3d collision host
   src/visuals.rs          optional real car models (assets/rl), wheel anchors, mipmaps
-tools/rl_assets/          extractor for the real car models from your own game install
+  src/boost.rs            boost flame cones and smoke (the game's when extracted), simple flame
+  src/shaders/            ports of the boost's flame and smoke material shaders
+tools/rl_assets/          extractor for the real car models and boost from your own game install
+  boost.py, ue3.py        the boost's meshes, placement, material and particle data
 crates/rl_car_validate/   scenarios, comparison, report, regression test
 crates/rl_car_ffi/        C ABI over the core + BoxWorld (seamless collision from voxel boxes)
 minecraft/                Fabric mod: car entity, renderer, camera, networking, tests

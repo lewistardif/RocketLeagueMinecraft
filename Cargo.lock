@@ -4929,6 +4929,8 @@ dependencies = [
  "avian3d",
  "bevy",
  "rl_car_core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

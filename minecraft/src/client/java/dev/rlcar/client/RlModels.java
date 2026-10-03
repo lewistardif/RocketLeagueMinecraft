@@ -46,8 +46,11 @@ public final class RlModels {
 	/** Radius of the exported wheel mesh ({@code WHEEL_Star_SM}), blocks. */
 	public static final float WHEEL_MESH_RADIUS = 0.16313F;
 
-	/** One textured triangle list. Triangles are drawn as quads with a repeated last vertex. */
-	public record Part(Identifier texture, float[] positions, float[] normals, float[] uvs, int[] triangles) {
+	/**
+	 * One textured triangle list. Triangles are drawn as quads with a repeated last vertex.
+	 * {@code uvs1} is the second UV set (a copy of the first when the mesh has only one).
+	 */
+	public record Part(Identifier texture, float[] positions, float[] normals, float[] uvs, float[] uvs1, int[] triangles) {
 	}
 
 	public record Model(List<Part> parts) {
@@ -84,6 +87,11 @@ public final class RlModels {
 
 	public static @Nullable Model wheel() {
 		return model("wheel/wheel.gltf");
+	}
+
+	/** A model of the extracted boost ({@code boost/<file>}), e.g. a car's flame cones. */
+	public static @Nullable Model boostModel(String file) {
+		return model("boost/" + file);
 	}
 
 	/** The model's wheel hubs (FL, FR, BL, BR), {x, y, z} in model space, or null. */
@@ -152,9 +160,10 @@ public final class RlModels {
 				float[] pos = floats(g, buffers, attr.get("POSITION").getAsInt(), 3);
 				float[] nrm = attr.has("NORMAL") ? floats(g, buffers, attr.get("NORMAL").getAsInt(), 3) : new float[pos.length];
 				float[] uv = attr.has("TEXCOORD_0") ? floats(g, buffers, attr.get("TEXCOORD_0").getAsInt(), 2) : new float[pos.length / 3 * 2];
+				float[] uv1 = attr.has("TEXCOORD_1") ? floats(g, buffers, attr.get("TEXCOORD_1").getAsInt(), 2) : uv;
 				int[] tris = prim.has("indices") ? ints(g, buffers, prim.get("indices").getAsInt()) : sequence(pos.length / 3);
 				Identifier tex = baseColor(g, dir, prim.has("material") ? prim.get("material").getAsInt() : -1);
-				parts.add(new Part(tex, pos, nrm, uv, tris));
+				parts.add(new Part(tex, pos, nrm, uv, uv1, tris));
 			}
 		}
 		return new Model(parts);
@@ -224,7 +233,8 @@ public final class RlModels {
 
 	// ------------------------------------------------------------------------- textures
 
-	private static Identifier texture(Path png) throws IOException {
+	/** Registers (once) a PNG as a mipmapped, linearly filtered, repeating texture. */
+	static Identifier texture(Path png) throws IOException {
 		Path key = png.toAbsolutePath().normalize();
 		Identifier id = TEXTURES.get(key);
 		if (id != null) {

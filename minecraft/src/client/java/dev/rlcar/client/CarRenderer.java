@@ -15,6 +15,7 @@ import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.AABB;
 import org.joml.Quaternionf;
 
 /**
@@ -57,6 +58,20 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 			car.wheelSpin = (car.wheelSpin + pose.forwardSpeed / Space.UU_PER_BLOCK / radius * dt) % Mth.TWO_PI;
 		}
 		state.wheelSpin = car.wheelSpin;
+		if (pose != null) {
+			boolean real = RlModels.body(state.preset, state.color == CarEntity.ORANGE) != null && RlModels.wheel() != null && RlModels.anchors(state.preset) != null;
+			RlBoost.extract(car, pose, state, real);
+		} else {
+			state.boostCones = null;
+			state.simpleFlame = false;
+			state.smokeCount = 0;
+		}
+	}
+
+	@Override
+	protected AABB getBoundingBoxForCulling(CarEntity car, float partialTicks) {
+		// Keep drawing while the boost smoke trails behind (it is part of this renderer).
+		return super.getBoundingBoxForCulling(car, partialTicks).inflate(RlBoost.smokeRadius(car));
 	}
 
 	private static float[] hitbox(int preset) {
@@ -77,8 +92,17 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		if (pose == null) {
 			return;
 		}
+		// Smoke first, world-aligned around the car origin.
+		RlBoost.submitSmoke(collector, poseStack, state, camera);
 		poseStack.pushPose();
 		poseStack.rotate(pose.rotation);
+		if (state.boostCones != null) {
+			RlBoost.submitCones(collector, poseStack, state.boostCones);
+		}
+		if (state.simpleFlame) {
+			float[] h = state.hitbox;
+			RlBoost.submitSimpleFlame(collector, poseStack, h[3] - h[0] / 2, h[5] - h[2] * 0.1F, h[4]);
+		}
 		RlModels.Model body = RlModels.body(state.preset, state.color == CarEntity.ORANGE);
 		RlModels.Model wheel = RlModels.wheel();
 		float[][] anchors = RlModels.anchors(state.preset);

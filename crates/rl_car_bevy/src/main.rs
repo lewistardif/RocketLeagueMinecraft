@@ -10,6 +10,7 @@
 #![allow(clippy::type_complexity, clippy::too_many_arguments)] // Bevy system parameter lists.
 
 mod arena;
+mod boost;
 mod collision;
 mod convert;
 mod input;
@@ -18,6 +19,7 @@ mod visuals;
 mod host_tests;
 
 use avian3d::prelude::*;
+use boost::BoostData;
 use bevy::prelude::*;
 use collision::{ArenaColliderQuery, AvianWorld};
 use convert::*;
@@ -38,6 +40,7 @@ fn main() {
                 .set(AssetPlugin { file_path: visuals::asset_root().to_string_lossy().into_owned(), ..default() }),
         )
         .add_plugins(PhysicsPlugins::default())
+        .add_plugins(boost::BoostPlugin)
         .insert_resource(ClearColor(Color::srgb(0.55, 0.68, 0.85)))
         .insert_resource(Sim::new(HitboxPreset::Octane))
         .insert_resource(CameraRig::default())
@@ -45,7 +48,7 @@ fn main() {
         .insert_resource(autopilot)
         .insert_resource(Showcase::from_args())
         .add_systems(Startup, (arena::spawn_arena, spawn_car, spawn_camera, spawn_hud))
-        .add_systems(Update, (hotkeys, simulate, sync_car, sync_wheels, follow_camera, update_hud, autopilot_shots, showcase, visuals::generate_mipmaps).chain())
+        .add_systems(Update, (hotkeys, simulate, sync_car, boost::sync_cones, sync_wheels, follow_camera, boost::update, update_hud, autopilot_shots, showcase, visuals::generate_mipmaps).chain())
         .run();
 }
 
@@ -223,8 +226,12 @@ struct Wheel {
     spin_rate: f32,
 }
 
+/// The simple boost flame (placeholder car, or a real car without the extracted boost): an outer
+/// cone and a brighter inner one, flickering in length.
 #[derive(Component)]
-struct BoostFlame;
+struct BoostFlame {
+    inner: bool,
+}
 
 #[derive(Component)]
 struct Hud;
@@ -235,7 +242,8 @@ fn spawn_car(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mater
     let body_mat = materials.add(StandardMaterial { base_color: Color::srgb(0.95, 0.45, 0.1), perceptual_roughness: 0.4, metallic: 0.2, ..default() });
     let glass_mat = materials.add(StandardMaterial { base_color: Color::srgb(0.1, 0.12, 0.18), perceptual_roughness: 0.1, ..default() });
     let wheel_mat = materials.add(StandardMaterial { base_color: Color::srgb(0.08, 0.08, 0.08), perceptual_roughness: 0.9, ..default() });
-    let flame_mat = materials.add(StandardMaterial { base_color: Color::srgb(1.0, 0.6, 0.1), emissive: LinearRgba::rgb(8.0, 3.0, 0.5), unlit: true, ..default() });
+    let flame_outer = materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.35, 0.05, 0.8), unlit: true, alpha_mode: AlphaMode::Add, ..default() });
+    let flame_inner = materials.add(StandardMaterial { base_color: Color::srgba(1.0, 0.9, 0.55, 0.9), unlit: true, alpha_mode: AlphaMode::Add, ..default() });
 
     let root = commands.spawn((CarRoot, Transform::default(), Visibility::default())).id();
     commands.entity(root).with_children(|p| {
@@ -246,7 +254,8 @@ fn spawn_car(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mater
                 b.spawn((Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))), MeshMaterial3d(body_mat), Transform::default(), Name::new("hull")));
                 b.spawn((Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))), MeshMaterial3d(glass_mat), Transform::default(), Name::new("cabin")));
             }
-            b.spawn((BoostFlame, Mesh3d(meshes.add(Cone { radius: 0.12, height: 0.6 })), MeshMaterial3d(flame_mat), Transform::default(), Visibility::Hidden));
+            b.spawn((BoostFlame { inner: false }, Mesh3d(meshes.add(Cone { radius: 0.12, height: 0.6 })), MeshMaterial3d(flame_outer), Transform::default(), Visibility::Hidden));
+            b.spawn((BoostFlame { inner: true }, Mesh3d(meshes.add(Cone { radius: 0.06, height: 0.4 })), MeshMaterial3d(flame_inner), Transform::default(), Visibility::Hidden));
         });
         let cylinder = meshes.add(Cylinder::new(1.0, 1.0));
         for i in 0..4 {
@@ -263,7 +272,7 @@ fn spawn_car(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mater
     });
 }
 
-/// Lays out hull/cabin/flame for the current preset (hitbox in Bevy car-local space).
+/// Lays out hull/cabin for the current preset (hitbox in Bevy car-local space).
 fn layout_body(preset: HitboxPreset, children: &Children, q: &mut Query<(&mut Transform, Option<&Name>, Option<&BoostFlame>), Without<CarRoot>>) {
     let cfg = preset.config();
     let half = cfg.effective_half_extents();
@@ -277,9 +286,7 @@ fn layout_body(preset: HitboxPreset, children: &Children, q: &mut Query<(&mut Tr
             (Some("cabin"), _) => {
                 *t = Transform::from_translation(center + Vec3::new(-size.x * 0.12, size.y * 0.25, 0.0)).with_scale(Vec3::new(size.x * 0.45, size.y * 0.5, size.z * 0.8))
             }
-            (_, true) => {
-                *t = Transform::from_translation(center + Vec3::new(-size.x * 0.5 - 0.25, -size.y * 0.1, 0.0)).with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2))
-            }
+            // The flame is placed every frame (it flickers), see `sync_car`.
             _ => {}
         }
     }
@@ -385,6 +392,8 @@ fn sync_car(
     mut parts: Query<(&mut Transform, Option<&Name>, Option<&BoostFlame>), Without<CarRoot>>,
     mut flames: Query<&mut Visibility, With<BoostFlame>>,
     mut last_preset: Local<Option<HitboxPreset>>,
+    boost: Res<BoostData>,
+    time: Res<Time>,
 ) {
     let Ok((mut t, children)) = root.single_mut() else { return };
     let (a, b) = (&sim.stepper.previous, &sim.stepper.current);
@@ -411,8 +420,24 @@ fn sync_car(
             }
         }
     }
+    // The game's boost replaces the simple flame when it was extracted for this car.
+    let simple = !(visuals.real && boost.has(sim.preset));
     for mut v in flames.iter_mut() {
-        *v = if b.is_boosting { Visibility::Visible } else { Visibility::Hidden };
+        *v = if b.is_boosting && simple { Visibility::Visible } else { Visibility::Hidden };
+    }
+    // Base on the back face of the hitbox, pointing backwards (a cone's apex is local +Y), and
+    // flickering in length.
+    let cfg = sim.preset.config();
+    let half = cfg.effective_half_extents();
+    let size = Vec3::new(half.x, half.z, half.y) * 2.0 / UU_PER_M;
+    let center = dir_to_bevy(cfg.hitbox_pos_offset) / UU_PER_M;
+    let now = time.elapsed_secs();
+    for (mut tf, _, flame) in parts.iter_mut() {
+        let Some(flame) = flame else { continue };
+        let height = if flame.inner { 0.4 } else { 0.6 };
+        let flicker = 1.0 + 0.12 * (now * 41.0 + flame.inner as u8 as f32).sin() + 0.08 * (now * 67.0).sin();
+        let back = center + Vec3::new(-size.x * 0.5 - flicker * height * 0.5, -size.y * 0.1, 0.0);
+        *tf = Transform::from_translation(back).with_rotation(Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)).with_scale(Vec3::new(1.0, flicker, 1.0));
     }
 }
 

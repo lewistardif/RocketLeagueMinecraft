@@ -12,4 +12,11 @@ public class CarRenderState extends EntityRenderState {
 	public float[] hitbox = new float[6];
 	/** Wheel roll angle (radians). */
 	public float wheelSpin;
+	/** The game's boost flame cones to draw (model space), or null. */
+	public RlModels.@Nullable Model boostCones;
+	/** Draw the simple boost flame instead. */
+	public boolean simpleFlame;
+	/** Boost smoke particles ({@link RlBoost}'s snapshot layout) and their count. */
+	public float[] smoke = new float[0];
+	public int smokeCount;
 }

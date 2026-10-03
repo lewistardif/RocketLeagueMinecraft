@@ -37,6 +37,12 @@ to `<.minecraft>/rlcar-assets`, or start the game with `-Drlcar.assets=<path to 
 Only the base colour textures are used (no normal maps or emissive lights). They get a full mip
 chain so they don't shimmer at a distance.
 
+The same folder holds the default boost (`boost/`): with it, the real cars get the game's flame cones
+and smoke trail, as in the Bevy demo (shaders in `src/client/resources/assets/rlcar/shaders/core/`).
+Without it, and on the box car, boosting shows a simple flickering flame. The boost material's
+parameters are compiled into the shader when the game starts, so a re-extracted boost needs a
+restart.
+
 ### Playing
 
 In game: take **RL Car** from the *Tools & Utilities* creative tab and use it on a block. Sneak
@@ -166,7 +172,7 @@ staying level while the car rolls, the rear view, the camera settings screen). I
 * **Not tested yet:** gamepads (written against SDL3, but no pad was connected during
   development); multiplayer with several real clients (the client↔server packets were exercised
   in singleplayer, which uses the same network code); macOS and Linux builds.
-* No sounds, boost flame or other effects yet.
+* No sounds, and no effects besides the boost (no supersonic trail, jump or landing effects).
 * Each car is re-sent to the GPU every frame (about 28k triangles for a body). That is fine for a
   handful of cars; many more would need cached vertex buffers.
 

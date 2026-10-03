@@ -8,6 +8,7 @@ import dev.rlcar.client.CarKeys;
 import dev.rlcar.client.ClientDriving;
 import dev.rlcar.client.PadBindEntry;
 import dev.rlcar.client.PadBinds;
+import dev.rlcar.client.RlBoost;
 import dev.rlcar.entity.CarEntity;
 import dev.rlcar.physics.CarPose;
 import dev.rlcar.physics.RlCarNative;
@@ -105,6 +106,12 @@ public class CarClientGameTest implements FabricClientGameTest {
 			check(fast.x - rest.x > 15, "boosted east: moved " + (fast.x - rest.x) + " blocks");
 			check(fast.boost == 100, "unlimited boost: tank still full after 1.5 s (" + fast.boost + ")");
 			check(!ctx.computeOnClient(mc -> mc.gameMode.isDestroying()), "left click did not mine while driving");
+			if (ctx.computeOnClient(mc -> RlBoost.extracted())) {
+				check(ctx.computeOnClient(mc -> mc.player.getVehicle() instanceof CarEntity c && RlBoost.smokeRadius(c) > 1), "boost smoke trails behind the car");
+			}
+			ctx.runOnClient(mc -> mc.gui.hud.toggle()); // hide the HUD (F1) to see the trail
+			shot(ctx, "2b-boost-trail");
+			ctx.runOnClient(mc -> mc.gui.hud.toggle());
 			input.releaseMouse(InputConstants.MOUSE_BUTTON_LEFT);
 			rebind(ctx, CarKeys.BOOST, CarKeys.BOOST.getDefaultKey());
 
