@@ -1,0 +1,63 @@
+#include "settings.h"
+#include "ini.h"
+#include <algorithm>
+#include <cctype>
+
+static const char* kPresets[] = {"octane", "dominus", "plank", "breakout", "hybrid", "merc", "psyclops"};
+static const char* kCameraPresets[] = {"default", "balanced", "wide", "custom", "legacy", "modern"};
+
+static std::string lower(std::string s) {
+	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+	return s;
+}
+
+int Settings::presetIndex(const std::string& name) {
+	for (int i = 0; i < 7; i++)
+		if (lower(name) == kPresets[i]) return i;
+	return -1;
+}
+
+const char* Settings::presetName(int i) { return (i >= 0 && i < 7) ? kPresets[i] : "octane"; }
+
+int Settings::cameraPresetIndex(const std::string& name) {
+	for (int i = 0; i < 6; i++)
+		if (lower(name) == kCameraPresets[i]) return i;
+	return -1;
+}
+
+void Settings::load(const Ini& ini, const ffi::Api& api) {
+	int p = presetIndex(ini.str("General", "Preset", "octane"));
+	preset = p < 0 ? 0 : p;
+	team = lower(ini.str("General", "Team", "blue")) == "orange" ? 1 : 0;
+	fallbackModel = ini.str("General", "FallbackModel", "bifta");
+	modelOffset = ini.num("General", "ModelOffset", 0);
+	showHud = ini.flag("General", "ShowHud", true);
+	debugLog = ini.flag("General", "DebugLog", false);
+	worldScale = std::clamp(ini.num("Scale", "WorldScale", 2.5), 0.1, 20.0);
+
+	// Physics: rl_car_ffi's SIM_CONFIG_FLOATS layout.
+	api.default_config(sim);
+	static const char* kSimKeys[ffi::SIM_CONFIG_FLOATS] = {
+		"Gravity", "BoostAccelGround", "BoostAccelAir", "BoostUsedPerSecond", "JumpAccel", "JumpImpulse", "WorldFriction",
+		"WorldRestitution", "UnlimitedFlips", "UnlimitedDoubleJumps", "UnlimitedBoost", "BoostRecharge",
+		"BoostRechargePerSecond", "BoostRechargeDelay", "MaxSpeed"};
+	sim[10] = 1;  // unlimited boost on unless the ini says otherwise
+	for (int i = 0; i < ffi::SIM_CONFIG_FLOATS; i++) {
+		bool isFlag = (i >= 8 && i <= 11);
+		sim[i] = isFlag ? (ini.flag("Car", kSimKeys[i], sim[i] != 0) ? 1.0f : 0.0f) : ini.numf("Car", kSimKeys[i], sim[i]);
+	}
+
+	// Camera: a preset, then any explicit value overrides it (Rocket League's "Custom").
+	int cp = cameraPresetIndex(ini.str("Camera", "Preset", "Default"));
+	api.camera_preset(cp < 0 ? 0 : uint32_t(cp), camera);
+	static const char* kCamKeys[ffi::CAMERA_SETTINGS_FLOATS] = {"FOV", "Height", "Angle", "Distance", "Stiffness",
+	                                                             "SwivelSpeed", "TransitionSpeed", "InvertSwivelPitch"};
+	if (cp < 0 || cp == 3) {
+		for (int i = 0; i < ffi::CAMERA_SETTINGS_FLOATS; i++) camera[i] = ini.numf("Camera", kCamKeys[i], camera[i]);
+	}
+	rearCameraToggle = ini.flag("Camera", "RearCameraToggle", false);
+	probeFlags = int(ini.num("World", "ProbeFlags", probeFlags));
+	wallRamps = ini.flag("World", "WallRamps", true);
+	wallRampRadius = std::clamp(ini.numf("World", "WallRampRadius", 320), 50.0f, 2000.0f);
+	bindings.load(ini);
+}
