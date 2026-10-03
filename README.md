@@ -215,3 +215,32 @@ THIRD_PARTY_NOTICES.md    RocketSim (MIT) and Bullet (zlib) notices
 
 MIT for this repository's code. The physics model follows RocketSim (MIT) and Bullet (zlib); see
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). RLUtilities (GPL-3.0) was **not** used.
+
+## Getting it working
+
+**Bevy demo (works out of the box)**
+
+1. Install [Rust](https://rustup.rs).
+2. Run `cargo run -p rl_car_bevy --release`.
+3. The demo uses the placeholder box car unless you add real car models (see below).
+
+**Minecraft mod**
+
+1. Install Java 25 and Rust.
+2. Run `cd minecraft && ./gradlew runClient`. Gradle builds the native physics library with cargo.
+3. Or build the jar with `./gradlew build` and install it with Fabric Loader 0.19.5+ and Fabric API
+   for Minecraft 26.3. The jar only supports the platform it was built on.
+4. In game, use the RL Car item or `/rlcar spawn`.
+5. Without models it uses the box car.
+
+**Optional: real car models**
+
+1. You need your own copy of Rocket League.
+2. Install Python 3 with `numpy` and `Pillow`, the .NET SDK, UModel and RL-UPKSuite.
+3. Run `python tools/rl_assets/extract.py --umodel <dir> --upksuite <dir>`, which writes `assets/rl/`.
+4. For Minecraft, copy `assets/rl` to `<.minecraft>/rlcar-assets`.
+5. Read Epic's EULA first: it does not allow extracting the game's assets.
+
+**Developers only: oracle and validation**
+
+`oracle/build.sh` needs `git` and a C++20 `g++`.
