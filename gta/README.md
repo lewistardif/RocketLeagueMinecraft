@@ -1,0 +1,105 @@
+# RL Car for GTA V
+
+> **Unofficial fan project.** Not affiliated with, endorsed by, or connected to Psyonix, Epic Games,
+> Rockstar Games or Take-Two. No game files are included: no Rocket League assets, no GTA files, no
+> Script Hook V binaries. **Single-player story mode only.** It does not touch GTA Online, FiveM, the
+> network or anti-cheat. Use it offline and at your own risk.
+
+A Script Hook V plugin (`RLCar.asi`) that puts the Rocket League car and ball into GTA V. Like the
+Minecraft mod, it drives this repository's Rust core (`crates/rl_car_core`) through its C ABI
+(`crates/rl_car_ffi`):
+
+- The core simulates the car and the ball at a fixed 120 Hz with Rocket League's physics. GTA's own
+  physics is switched off for them, and the GTA vehicle and ball prop are just drawn at the pose the
+  core computes.
+- GTA's world becomes the core's collision through GTA's shape tests. Each wheel gets one probe.
+  The car body and the ball collide with surfaces found by probing around them.
+- Invisible quarter-pipes where the ground meets a steep wall let you drive up buildings like the
+  arena's curved walls. Turn them off with `WallRamps = 0`.
+- The camera is the core's Rocket League car camera with swivel, rear view and ball cam.
+
+## Build and install
+
+You need Rust, Visual Studio 2022 with the C++ tools, CMake, and the
+[Script Hook V](http://www.dev-c.com/gtav/scripthookv/) SDK (set `SHV_SDK` to the folder that has
+`inc\` and `lib\`).
+
+```bat
+gta\build.bat
+```
+
+This builds `rl_car_ffi.dll` and `RLCar.asi`, runs the unit tests, and stages everything in
+`gta\stage`. Copy the contents of `gta\stage` into the GTA V folder, next to Script Hook V. You get
+`RLCar.asi` plus an `RLCar\` folder with the DLL and `RLCar.ini`. The log is `RLCar\RLCar.log`.
+
+The unit tests also run on Linux: `gta/tests/run_tests.sh`.
+
+## Playing
+
+| Action | Keyboard | Gamepad |
+|---|---|---|
+| Become the car / get back in | F9 (F next to the car) | LS + RS (Y next to the car) |
+| Back to your character | F | Back / View |
+| Menu (order from the Mechanic, hitbox, team, ball) | F7 | |
+| Throttle / reverse, pitch in the air | W / S | RT / LT, left stick |
+| Steer, yaw in the air | A / D | left stick |
+| Jump, double jump, dodge | Space | A |
+| Boost | Left Shift | B |
+| Powerslide, free air roll | Left Ctrl | Square / X |
+| Air roll left / right | Q / E | LB / RB |
+| Rear camera | Middle mouse | RS |
+| Spawn the ball | B | D-pad left |
+| Ball cam | C | D-pad down |
+| Fire / next weapon | Left mouse / X | D-pad up / D-pad right |
+| Reset | R | Y |
+| Reload `RLCar.ini` | F10 | |
+
+Every binding can be changed in `RLCar.ini`. Use commas for alternatives and `+` for chords.
+
+At supersonic speed, hitting a GTA car with the front bumper demolishes it, and hitting a pedestrian
+knocks them out. Below supersonic, cars and pedestrians get Rocket League's bump. Turn this off or
+scale it in `[Interaction]`.
+
+## Settings
+
+`RLCar.ini` sections:
+
+| Section | What it holds |
+|---|---|
+| `[General]` | hitbox preset, team, the GTA vehicle drawn for the car, HUD |
+| `[Scale]` | `WorldScale`: GTA metres per Rocket League metre. 2.5 makes the Octane about as big as a GTA car. The physics is the same at any scale. |
+| `[Car]` | Rocket League's physics values: gravity, boost, jump, friction, top speed, unlimited flips or boost |
+| `[Ball]` | ball model, size, mass, drag, bounce, friction, speed and spin caps, hit force |
+| `[Camera]` | a Rocket League camera preset, or `Custom` with your own values |
+| `[Controls]`, `[Gamepad]` | bindings, deadzones |
+| `[Interaction]` | bumps and demolitions of GTA cars and pedestrians |
+| `[Effects]` | boost flame, exhaust glow, boost sound |
+| `[Weapons]` | the machine gun and missiles on the car |
+| `[World]` | what the car and ball collide with, the wall quarter-pipes |
+
+Every value in `[Car]` and `[Ball]` defaults to Rocket League's own. Changing one makes the physics
+differ from the game.
+
+## Car models
+
+The car is drawn with a stock GTA vehicle (`FallbackModel`, default `bifta`), coloured for your
+team. Turning the Rocket League models from `tools/rl_assets/extract.py` into a GTA add-on vehicle is
+not automated. GTA's model formats need tools like CodeWalker or Sollumz. Extracted or converted
+models are your own local files: they stay out of git, and Epic's EULA does not allow extracting
+the game's assets.
+
+## Layout
+
+```
+src/plugin.cpp       the plugin: car, ball, menu, camera, HUD, input
+src/probe_world.*    the core's collision from GTA shape tests, wall quarter-pipes
+src/gta_probe.cpp    GTA's synchronous shape test
+src/space.h          Rocket League <-> GTA coordinates
+src/rlcar_ffi.*      loads rl_car_ffi.dll
+src/interact.*       bumps and demolitions of GTA entities
+src/effects.*        boost flame, glow, sound
+src/weapons.*        machine gun, missiles
+src/settings.*, ini.*, bindings.*   RLCar.ini
+src/natives.h        generated by tools/gen_natives.py from alloc8or/gta5-nativedb-data
+tests/tests.cpp      unit tests (no GTA needed)
+```
