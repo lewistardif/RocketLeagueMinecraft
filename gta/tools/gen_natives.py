@@ -1,0 +1,105 @@
+"""Writes gta/src/natives.h: typed wrappers for the GTA V script natives this plugin uses.
+
+Source: alloc8or/gta5-nativedb-data `natives.json` (Legacy hashes), passed as the first argument.
+Only the names listed in NATIVES are emitted, so the header stays small and reviewable.
+    python gta/tools/gen_natives.py path/to/natives.json gta/src/natives.h
+"""
+import json, re, sys
+
+NATIVES = """
+PLAYER_PED_ID PLAYER_ID GET_PLAYER_PED IS_PLAYER_CONTROL_ON SET_PLAYER_CONTROL
+IS_PED_IN_ANY_VEHICLE IS_PED_IN_VEHICLE GET_VEHICLE_PED_IS_IN GET_VEHICLE_PED_IS_TRYING_TO_ENTER SET_PED_INTO_VEHICLE
+TASK_LEAVE_VEHICLE TASK_ENTER_VEHICLE CLEAR_PED_TASKS_IMMEDIATELY SET_PED_TO_RAGDOLL APPLY_DAMAGE_TO_PED IS_PED_DEAD_OR_DYING
+SET_PED_CAN_BE_KNOCKED_OFF_VEHICLE SET_PED_CONFIG_FLAG GET_PED_IN_VEHICLE_SEAT IS_PED_A_PLAYER SET_PED_RESET_FLAG
+GET_ENTITY_COORDS GET_ENTITY_HEADING SET_ENTITY_COORDS_NO_OFFSET SET_ENTITY_COORDS SET_ENTITY_HEADING SET_ENTITY_QUATERNION
+FREEZE_ENTITY_POSITION SET_ENTITY_COLLISION SET_ENTITY_HAS_GRAVITY SET_ENTITY_VELOCITY GET_ENTITY_VELOCITY SET_ENTITY_INVINCIBLE
+DOES_ENTITY_EXIST DELETE_ENTITY SET_ENTITY_AS_MISSION_ENTITY SET_ENTITY_VISIBLE SET_ENTITY_ALPHA RESET_ENTITY_ALPHA GET_ENTITY_MODEL
+APPLY_FORCE_TO_ENTITY APPLY_FORCE_TO_ENTITY_CENTER_OF_MASS IS_ENTITY_A_VEHICLE IS_ENTITY_A_PED IS_ENTITY_AN_OBJECT
+SET_ENTITY_NO_COLLISION_ENTITY GET_ENTITY_FORWARD_VECTOR GET_ENTITY_SPEED IS_ENTITY_DEAD SET_ENTITY_DYNAMIC
+SET_ENTITY_LOAD_COLLISION_FLAG GET_ENTITY_MATRIX SET_ENTITY_HEALTH SET_ENTITY_PROOFS SET_ENTITY_CAN_BE_DAMAGED
+GET_MODEL_DIMENSIONS
+CREATE_VEHICLE SET_VEHICLE_ENGINE_ON EXPLODE_VEHICLE SET_VEHICLE_COLOURS SET_VEHICLE_CUSTOM_PRIMARY_COLOUR
+SET_VEHICLE_CUSTOM_SECONDARY_COLOUR SET_VEHICLE_DOORS_LOCKED SET_VEHICLE_CAN_BE_VISIBLY_DAMAGED SET_VEHICLE_FIXED
+SET_VEHICLE_RADIO_ENABLED SET_VEHICLE_HAS_STRONG_AXLES SET_VEHICLE_REDUCE_GRIP SET_VEHICLE_GRAVITY GET_CLOSEST_VEHICLE_NODE_WITH_HEADING
+SET_VEHICLE_LIGHTS SET_VEHICLE_EXPLODES_ON_HIGH_EXPLOSION_DAMAGE IS_VEHICLE_DRIVEABLE
+CREATE_OBJECT CREATE_OBJECT_NO_OFFSET
+REQUEST_MODEL HAS_MODEL_LOADED SET_MODEL_AS_NO_LONGER_NEEDED IS_MODEL_IN_CDIMAGE IS_MODEL_A_VEHICLE IS_MODEL_VALID
+REQUEST_NAMED_PTFX_ASSET HAS_NAMED_PTFX_ASSET_LOADED REQUEST_SCRIPT_AUDIO_BANK
+GET_HASH_KEY GET_FRAME_TIME GET_GAME_TIMER GET_GROUND_Z_FOR_3D_COORD
+START_EXPENSIVE_SYNCHRONOUS_SHAPE_TEST_LOS_PROBE GET_SHAPE_TEST_RESULT GET_SHAPE_TEST_RESULT_INCLUDING_MATERIAL
+CREATE_CAM DESTROY_CAM SET_CAM_ACTIVE RENDER_SCRIPT_CAMS SET_CAM_COORD SET_CAM_ROT SET_CAM_FOV SET_CAM_NEAR_CLIP SET_CAM_FAR_CLIP
+GET_GAMEPLAY_CAM_ROT GET_GAMEPLAY_CAM_COORD SET_GAMEPLAY_CAM_RELATIVE_HEADING INVALIDATE_IDLE_CAM
+DISABLE_CONTROL_ACTION ENABLE_CONTROL_ACTION IS_DISABLED_CONTROL_JUST_PRESSED IS_CONTROL_JUST_PRESSED GET_DISABLED_CONTROL_NORMAL
+SET_TEXT_FONT SET_TEXT_SCALE SET_TEXT_COLOUR SET_TEXT_OUTLINE SET_TEXT_CENTRE SET_TEXT_DROPSHADOW
+BEGIN_TEXT_COMMAND_DISPLAY_TEXT ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME END_TEXT_COMMAND_DISPLAY_TEXT
+BEGIN_TEXT_COMMAND_THEFEED_POST END_TEXT_COMMAND_THEFEED_POST_MESSAGETEXT END_TEXT_COMMAND_THEFEED_POST_TICKER
+BEGIN_TEXT_COMMAND_DISPLAY_HELP END_TEXT_COMMAND_DISPLAY_HELP
+ADD_BLIP_FOR_ENTITY SET_BLIP_SPRITE SET_BLIP_COLOUR REMOVE_BLIP DOES_BLIP_EXIST SET_BLIP_AS_SHORT_RANGE
+DRAW_RECT DRAW_LINE DRAW_MARKER HIDE_HUD_AND_RADAR_THIS_FRAME
+USE_PARTICLE_FX_ASSET START_PARTICLE_FX_LOOPED_ON_ENTITY START_PARTICLE_FX_LOOPED_AT_COORD STOP_PARTICLE_FX_LOOPED
+REMOVE_PARTICLE_FX SET_PARTICLE_FX_LOOPED_OFFSETS SET_PARTICLE_FX_LOOPED_EVOLUTION SET_PARTICLE_FX_LOOPED_ALPHA
+SET_PARTICLE_FX_LOOPED_SCALE SET_PARTICLE_FX_LOOPED_COLOUR START_PARTICLE_FX_NON_LOOPED_AT_COORD DOES_PARTICLE_FX_LOOPED_EXIST
+ADD_EXPLOSION ADD_OWNED_EXPLOSION SHAKE_GAMEPLAY_CAM SHAKE_CAM
+SHOOT_SINGLE_BULLET_BETWEEN_COORDS SHOOT_SINGLE_BULLET_BETWEEN_COORDS_IGNORE_ENTITY REQUEST_WEAPON_ASSET HAS_WEAPON_ASSET_LOADED
+GET_GAMEPLAY_CAM_FOV IS_PAUSE_MENU_ACTIVE GET_IS_LOADING_SCREEN_ACTIVE
+SET_VEHICLE_DENSITY_MULTIPLIER_THIS_FRAME GET_CLOSEST_VEHICLE GET_CLOSEST_PED
+PLAY_SOUND_FROM_ENTITY PLAY_SOUND_FRONTEND STOP_SOUND GET_SOUND_ID RELEASE_SOUND_ID
+""".split()
+
+KW = {'default', 'this', 'class', 'new', 'delete', 'template', 'operator', 'union', 'struct', 'int', 'float', 'char', 'bool',
+      'auto', 'register', 'return', 'switch', 'case', 'for', 'while', 'do', 'if', 'else', 'enum', 'const', 'signed', 'unsigned',
+      'long', 'short', 'void', 'static', 'extern', 'inline', 'friend', 'virtual', 'goto', 'break', 'continue', 'typedef',
+      'namespace', 'using', 'try', 'catch', 'throw', 'true', 'false', 'and', 'or', 'not', 'xor', 'near', 'far'}
+HANDLES = ['Entity', 'Ped', 'Vehicle', 'Object', 'Player', 'Cam', 'Pickup', 'Blip', 'FireId', 'Interior']
+T = {'Any': 'Any', 'BOOL': 'BOOL', 'int': 'int', 'float': 'float', 'const char*': 'const char*', 'char*': 'char*',
+     'Hash': 'Hash', 'Vector3': 'Vector3', 'void': 'void', 'uint': 'unsigned int'}
+for h in HANDLES:
+    T[h] = h
+
+def ty(t):
+    t = t.strip()
+    if t in T:
+        return T[t]
+    if t.endswith('*'):
+        base = ty(t[:-1])
+        return (base if base != 'Any' else 'Any') + '*'
+    return 'Any'
+
+def main(src, dst):
+    db = json.load(open(src))
+    found = {}
+    for ns, funcs in db.items():
+        for h, f in funcs.items():
+            if f['name'] in NATIVES and f['name'] not in found:
+                found[f['name']] = (ns, h, f)
+    missing = [n for n in NATIVES if n not in found]
+    if missing:
+        sys.exit('not in the database: ' + ' '.join(missing))
+    out = ['// GENERATED by gta/tools/gen_natives.py from alloc8or/gta5-nativedb-data. Do not edit by hand.',
+           '#pragma once', '#include "invoker.h"', '']
+    by_ns = {}
+    for name in NATIVES:
+        ns, h, f = found[name]
+        by_ns.setdefault(ns, []).append((name, h, f))
+    for ns in sorted(by_ns):
+        out.append(f'namespace {ns} {{')
+        for name, h, f in by_ns[ns]:
+            ps, names = [], []
+            for i, p in enumerate(f['params']):
+                pn = p['name'] or f'p{i}'
+                if pn in KW or not re.match(r'^[A-Za-z_]\w*$', pn):
+                    pn = '_' + re.sub(r'\W', '_', pn)
+                if pn in names:
+                    pn = f'{pn}{i}'
+                names.append(pn)
+                ps.append(f"{ty(p['type'])} {pn}")
+            r = ty(f['return_type'])
+            args = ''.join(', ' + n for n in names)
+            out.append(f"inline {r} {name}({', '.join(ps)}) {{ return invoke<{r}>({h}ULL{args}); }}")
+        out.append('}')
+        out.append('')
+    open(dst, 'w', newline='\n').write('\n'.join(out))
+    print(f'{len(NATIVES)} natives -> {dst}')
+
+if __name__ == '__main__':
+    main(sys.argv[1], sys.argv[2])
