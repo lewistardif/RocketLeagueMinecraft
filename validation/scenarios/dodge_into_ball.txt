@@ -1,0 +1,16 @@
+# Car drives at a resting ball, jumps and front-flips into it.
+name dodge_into_ball
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 1000 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 0 0 0
+ctrl 30 1 0 0 0 0 1 0 0
+ctrl 36 1 0 0 0 0 0 0 0
+ctrl 42 1 0 -1 0 0 1 0 0
+ctrl 50 1 0 0 0 0 0 0 0
+ball 900 0 93.15 0 0 0 0 0 0

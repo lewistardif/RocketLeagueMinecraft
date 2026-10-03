@@ -92,6 +92,10 @@ pub trait CollisionWorld {
     /// is how Rocket League (Bullet) resolves body contacts; reporting all corners at once makes
     /// impacts noticeably stiffer than in the game.
     fn box_contacts(&self, obb: &Obb, margin: f32, out: &mut Vec<Contact>);
+
+    fn sphere_contacts(&self, center: Vec3, radius: f32, margin: f32, out: &mut Vec<Contact>) {
+        let _ = (center, radius, margin, out);
+    }
 }
 
 /// A world with no geometry at all (free fall forever).
@@ -165,6 +169,16 @@ impl CollisionWorld for PlaneWorld {
     fn box_contacts(&self, obb: &Obb, margin: f32, out: &mut Vec<Contact>) {
         for (i, pl) in self.planes.iter().enumerate() {
             let deepest = obb.support(-pl.normal);
+            let d = pl.normal.dot(deepest - pl.point);
+            if d < margin {
+                out.push(Contact { point: deepest - pl.normal * d, normal: pl.normal, depth: -d, surface: i as u32 });
+            }
+        }
+    }
+
+    fn sphere_contacts(&self, center: Vec3, radius: f32, margin: f32, out: &mut Vec<Contact>) {
+        for (i, pl) in self.planes.iter().enumerate() {
+            let deepest = center - pl.normal * radius;
             let d = pl.normal.dot(deepest - pl.point);
             if d < margin {
                 out.push(Contact { point: deepest - pl.normal * d, normal: pl.normal, depth: -d, surface: i as u32 });

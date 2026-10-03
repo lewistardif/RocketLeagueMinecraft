@@ -1,0 +1,12 @@
+# Ball thrown down at an angle with sidespin and topspin.
+name ball_spin_bounce
+preset octane
+ticks 360
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ball 0 0 400 300 200 -800 0 5 2
+nocar

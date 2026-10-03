@@ -1,0 +1,12 @@
+# Car turning and boosting clips the ball with its front corner.
+name corner_hit_turning
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0.25 0 0 0 0 1 0
+ball 1000 250 93.15 0 0 0 0 0 0

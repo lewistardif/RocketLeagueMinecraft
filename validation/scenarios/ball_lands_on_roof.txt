@@ -1,0 +1,12 @@
+# Ball dropped onto a slowly accelerating car (dribble start).
+name ball_lands_on_roof
+preset octane
+ticks 300
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 0.2 0 0 0 0 0 0 0
+ball 0 0 300 0 0 -1 0 0 0

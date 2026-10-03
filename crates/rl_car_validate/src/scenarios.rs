@@ -68,6 +68,10 @@ impl Scenario {
         }
     }
 
+    pub fn named(name: &str, description: &str, category: Category) -> Scenario {
+        Scenario::new(name, description, category)
+    }
+
     fn ctrl(mut self, from: u32, c: Controls) -> Self {
         self.controls.push((from, c));
         self

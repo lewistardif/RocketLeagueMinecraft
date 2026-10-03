@@ -1,0 +1,11 @@
+# Upside-down car rising into a hanging ball with its wheels (flip-reset contact).
+name wheels_on_ball
+preset octane
+ticks 120
+plane 0 0 0 0 0 1
+pos 0 0 330
+vel 0 0 500
+angvel 0 0 0
+rot 1 0 0 0 -1 0.00000008742278 0 -0.00000008742278 -1
+boost 100
+ball 0 0 500 0 0 0 0 0 0

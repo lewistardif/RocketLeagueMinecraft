@@ -88,6 +88,7 @@ struct WheelTick {
     rest_length: f32,
     radius: f32,
     force_scale: f32,
+    on_dynamic: bool,
 }
 
 #[inline]
@@ -97,6 +98,52 @@ fn sgn(v: f32) -> i32 {
 
 /// Advance the car by one tick with custom rules.
 pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWorld, cfg: &SimConfig, dt: f32) -> CarState {
+    let mut t = car_begin(state, controls, world, cfg, dt, None);
+    car_collide_world(&mut t, world);
+    let contacts = car_world_contacts(&t);
+    let applied = solver::solve_and_integrate(&mut t.body, &contacts, cfg.car_world_friction, cfg.car_world_restitution, dt);
+    car_store_world_impulses(&mut t, &applied);
+    car_end(t, cfg, dt)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DynamicGround {
+    pub center: Vec3,
+    pub radius: f32,
+    pub vel: Vec3,
+    pub ang_vel: Vec3,
+    pub inv_mass: f32,
+    pub inv_inertia: f32,
+}
+
+impl DynamicGround {
+    fn velocity_at(&self, rel: Vec3) -> Vec3 {
+        self.vel + self.ang_vel.cross(rel)
+    }
+
+    fn raycast(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<(f32, Vec3, Vec3)> {
+        let to = origin + dir * max_dist;
+        let (fraction, normal) = crate::subsimplex::ray_sphere(origin, to, self.center, self.radius)?;
+        Some((fraction * max_dist, origin * (1.0 - fraction) + to * fraction, normal))
+    }
+}
+
+pub(crate) struct CarTick {
+    pub s: CarState,
+    pub controls: Controls,
+    pub car: CarConfig,
+    pub body: Body,
+    pub breaking_threshold: f32,
+}
+
+pub(crate) fn car_begin(
+    state: &CarState,
+    controls: &Controls,
+    world: &dyn CollisionWorld,
+    cfg: &SimConfig,
+    dt: f32,
+    ground: Option<&DynamicGround>,
+) -> CarTick {
     let mut s = *state;
     let controls = controls.clamped();
     let car = s.config();
@@ -127,7 +174,14 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
 
         // Suspension raycast.
         let ray_len = wt.rest_length + suspension_travel + wt.radius - SUBTRACTION_BT;
-        let hit = world.raycast(wt.hard_point * BT_TO_UU, wheel_dir, ray_len * BT_TO_UU);
+        let mut hit = world.raycast(wt.hard_point * BT_TO_UU, wheel_dir, ray_len * BT_TO_UU);
+        wt.on_dynamic = false;
+        if let Some((t, point, normal)) = ground.and_then(|g| g.raycast(wt.hard_point, wheel_dir, ray_len))
+            && hit.is_none_or(|h| t * BT_TO_UU < h.distance)
+        {
+            hit = Some(crate::world::RayHit { distance: t * BT_TO_UU, point: point * BT_TO_UU, normal });
+            wt.on_dynamic = true;
+        }
         if let Some(hit) = hit {
             let fraction = if ray_len > 0.0 { (hit.distance * UU_TO_BT / ray_len).clamp(0.0, 1.0) } else { 0.0 };
             let target = wt.hard_point + wheel_dir * ray_len;
@@ -154,7 +208,7 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
             // Bottomed-out suspension: extra push-back (Bullet `resolveSingleCollision`).
             // NOTE: like the game, the previous value is kept when not bottomed out.
             let pushback_thresh = (wt.rest_length + wt.radius) - SUBTRACTION_BT;
-            if trace_len < pushback_thresh {
+            if !wt.on_dynamic && trace_len < pushback_thresh {
                 let distance = trace_len - pushback_thresh;
                 let rel = wt.contact_point - body.pos;
                 let rel_vel = wt.contact_normal.dot(body.velocity_at(rel));
@@ -192,13 +246,28 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
 
         // Side impulse (Bullet `resolveSingleBilateral` against static ground).
         let rel = wt.contact_point - body.pos;
-        let rel_vel = axle_dir.dot(body.velocity_at(rel));
-        let jac_inv = 1.0 / body.jacobian_diag(rel, axle_dir);
-        let side_impulse = -SIDE_FRICTION_DAMPING * rel_vel * jac_inv;
+        let dyn_ground = if wt.on_dynamic { ground } else { None };
+        let side_impulse = match dyn_ground {
+            None => {
+                let rel_vel = axle_dir.dot(body.velocity_at(rel));
+                let jac_inv = 1.0 / body.jacobian_diag(rel, axle_dir);
+                -SIDE_FRICTION_DAMPING * rel_vel * jac_inv
+            }
+            Some(g) => {
+                let rel2 = wt.contact_point - g.center;
+                let rel_vel = axle_dir.dot(body.velocity_at(rel) - g.velocity_at(rel2));
+                let b_j = rel2.cross(-axle_dir);
+                let jac = body.jacobian_diag(rel, axle_dir) + g.inv_mass + (b_j * g.inv_inertia).dot(b_j);
+                -SIDE_FRICTION_DAMPING * rel_vel * (1.0 / jac)
+            }
+        };
 
         let rolling_friction = if ws.engine_force == 0.0 {
             if ws.brake != 0.0 {
-                let mut rel_vel = body.velocity_at(rel).dot(forward_dir);
+                let mut rel_vel = match dyn_ground {
+                    None => body.velocity_at(rel).dot(forward_dir),
+                    Some(g) => (body.velocity_at(rel) - g.velocity_at(rel)).dot(forward_dir),
+                };
                 if dt > 1.0 / 80.0 {
                     let threshold = -(1.0 / (dt * 150.0)) + 0.8;
                     if rel_vel.abs() < threshold {
@@ -298,9 +367,14 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
 
     // ---------------------------------------------------------------- 4. physics step
     body.apply_central_force(cfg.gravity * UU_TO_BT * (1.0 / body.inv_mass));
-
-    // Body vs world: refresh cached contact points, add this tick's new points, solve.
     let breaking_threshold = car.contact_breaking_threshold_bt();
+    CarTick { s, controls, car, body, breaking_threshold }
+}
+
+pub(crate) fn car_collide_world(t: &mut CarTick, world: &dyn CollisionWorld) {
+    let CarTick { s, car, body, breaking_threshold, .. } = t;
+    let (car, body, breaking_threshold) = (&*car, &*body, *breaking_threshold);
+    // Body vs world: refresh cached contact points, add this tick's new points, solve.
     s.manifolds.refresh_all(body.pos, &body.basis, breaking_threshold);
     let obb = Obb {
         center: (body.pos + body.basis * (car.hitbox_pos_offset * UU_TO_BT)) * BT_TO_UU,
@@ -328,7 +402,10 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
         s.world_contact_normal = Some(c.normal);
     }
     s.manifolds.refresh_all(body.pos, &body.basis, breaking_threshold);
+}
 
+pub(crate) fn car_world_contacts(t: &CarTick) -> Vec<SolverContact> {
+    let (s, body) = (&t.s, &t.body);
     let mut solver_contacts = Vec::new();
     for m in s.manifolds.list.iter().filter(|m| m.active) {
         for p in &m.points[..m.count] {
@@ -340,15 +417,21 @@ pub fn step_with(state: &CarState, controls: &Controls, world: &dyn CollisionWor
             });
         }
     }
-    let applied = solver::solve_and_integrate(&mut body, &solver_contacts, cfg.car_world_friction, cfg.car_world_restitution, dt);
+    solver_contacts
+}
+
+pub(crate) fn car_store_world_impulses(t: &mut CarTick, applied: &[f32]) {
     let mut k = 0;
-    for m in s.manifolds.list.iter_mut().filter(|m| m.active) {
+    for m in t.s.manifolds.list.iter_mut().filter(|m| m.active) {
         for p in m.points[..m.count].iter_mut() {
             p.applied_impulse = applied[k];
             k += 1;
         }
     }
+}
 
+pub(crate) fn car_end(t: CarTick, cfg: &SimConfig, dt: f32) -> CarState {
+    let CarTick { mut s, controls, mut body, .. } = t;
     // ---------------------------------------------------------------- 5. post tick
     s.orientation = RotMat(body.basis);
     {
@@ -393,7 +476,7 @@ fn update_wheels(
     upwards_from_wheels: &dyn Fn(&[WheelTick; 4], &Body) -> Vec3,
 ) {
     let abs_speed = forward_speed.abs();
-    let wheels_have_world_contact = w.iter().any(|wt| wt.in_contact);
+    let wheels_have_world_contact = w.iter().any(|wt| wt.in_contact && !wt.on_dynamic);
 
     if c.handbrake {
         s.handbrake_val += POWERSLIDE_RISE_RATE * dt;

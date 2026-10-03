@@ -23,22 +23,28 @@
 //! * World geometry is supplied by the host through [`CollisionWorld`] (wheel raycasts + box contacts).
 //! * Deterministic: no clocks, no randomness, no threads, fixed float operation order.
 
+pub mod ball;
 pub mod body;
 pub mod camera;
 pub mod config;
 pub mod consts;
+mod island;
 pub mod maneuvers;
 pub mod manifold;
 pub mod math;
+pub mod scene;
 pub mod sim;
 pub mod solver;
 pub mod state;
 pub mod stepper;
+mod subsimplex;
 pub mod world;
 
+pub use ball::{BallConfig, BallState};
 pub use config::{CarConfig, HitboxPreset, WheelPairConfig};
 pub use consts::{TICK_DT, TICK_RATE};
 pub use math::{Mat3, Quat, Vec3};
+pub use scene::{Scene, SceneCar, step_scene};
 pub use sim::{SimConfig, step, step_with};
 pub use state::{CarState, Controls, RotMat, WheelState};
 pub use stepper::FixedStepper;
