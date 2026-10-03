@@ -1,0 +1,32 @@
+# RL Car for GTA V: the Script Hook V plugin (RLCar.asi) and its unit tests.
+# Normally built by gta\build.bat, which also builds rl_car_ffi.dll with cargo and stages everything.
+cmake_minimum_required(VERSION 3.20)
+project(RLCarGTA LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")  # static CRT
+add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+if(MSVC)
+  add_compile_options(/W3 /utf-8 /permissive-)
+endif()
+
+set(CORE_SOURCES src/ini.cpp src/bindings.cpp src/settings.cpp src/probe_world.cpp src/rlcar_ffi.cpp)
+
+# Script Hook V SDK (main.h, ScriptHookV.lib) from http://www.dev-c.com/gtav/scripthookv/ -- not
+# redistributable, so it is never in this repository. Point SHV_SDK at the folder with inc\ and lib\.
+set(SHV_SDK "$ENV{SHV_SDK}" CACHE PATH "Script Hook V SDK folder (contains inc and lib)")
+if(NOT SHV_SDK)
+  set(SHV_SDK "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ScriptHookV_SDK")
+endif()
+
+if(EXISTS "${SHV_SDK}/inc/main.h")
+  add_library(RLCar SHARED src/plugin.cpp src/gta_probe.cpp ${CORE_SOURCES})
+  set_target_properties(RLCar PROPERTIES SUFFIX ".asi")
+  target_include_directories(RLCar PRIVATE src "${SHV_SDK}/inc")
+  target_link_libraries(RLCar PRIVATE "${SHV_SDK}/lib/ScriptHookV.lib")
+else()
+  message(WARNING "Script Hook V SDK not found at '${SHV_SDK}': building the tests only. Set SHV_SDK.")
+endif()
+
+add_executable(rlcar_tests tests/tests.cpp ${CORE_SOURCES})
+target_include_directories(rlcar_tests PRIVATE src)
