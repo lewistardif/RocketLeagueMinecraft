@@ -39,7 +39,14 @@ fn main() {
                     primary_window: Some(Window { title: "rl_car_core - Bevy demo (unofficial)".into(), ..default() }),
                     ..default()
                 })
-                .set(AssetPlugin { file_path: visuals::asset_root().to_string_lossy().into_owned(), ..default() }),
+                .set(AssetPlugin { file_path: visuals::asset_root().to_string_lossy().into_owned(), ..default() })
+                // The wheel mesh's vertex colours (tools/rl_assets/extract.py, for the Minecraft
+                // mod's wheel shader); unused here, registered so the loader does not warn.
+                // (Named without the underscore: the gltf crate strips it before the lookup.)
+                .set(bevy::gltf::GltfPlugin::default().add_custom_vertex_attribute(
+                    "RL_VERTEX_COLOR",
+                    bevy::mesh::MeshVertexAttribute::new("RlVertexColor", 0x524c_5643, bevy::mesh::VertexFormat::Float32x4),
+                )),
         )
         .add_plugins(PhysicsPlugins::default())
         .add_plugins(boost::BoostPlugin)

@@ -7,8 +7,9 @@
 //
 // The rim is brushed metal (rim normal plus a tiled brushed-metal normal) with a swirling
 // reflection and a sharp highlight (SpecPower); the tyre gets a soft rubber sheen. The game tells
-// them apart by the mesh's vertex colour, which the exported mesh does not have, so the rim's RGB
-// mask (red = tyre) stands in for it.
+// them apart by the mesh's vertex colour (red = tyre), from rl_car.vsh (RL_WHEEL). Tyre and rim
+// share the UV space, so no texture can stand in for it; extractions older than the vertex colours
+// fall back to the rim's RGB mask, which is wrong on about half of the wheel.
 //
 // Defines: P58 additional normal scale, P59 RimColor,
 // P60 (Rim_AdditionalNormal_Power, ReflectionBrightness, SpecIntensity, SpecPower).
@@ -21,7 +22,9 @@ uniform sampler2D TireNormalMap;    // t2
 uniform sampler2D SwirlMap;         // t3
 uniform sampler2D RimDiffuseMap;    // t4 (sRGB)
 uniform sampler2D TireDiffuseMap;   // t5 (sRGB)
-uniform sampler2D TireMaskMap;      // stands in for the vertex colour
+uniform sampler2D TireMaskMap;      // the fallback without vertex colours
+
+layout(location = 9) in float vertexTyre;
 
 #define CB58 vec4(P58_X, P58_Y, P58_Z, P58_W)
 #define CB59 vec4(P59_X, P59_Y, P59_Z, P59_W)
@@ -33,7 +36,7 @@ void main() {
     vec3 v4 = toTangent(e, e.L);
     vec3 v5 = toTangent(e, e.V);
     vec3 v6 = toTangent(e, vec3(0.0, 1.0, 0.0));
-    float v2x = smoothstep(0.4, 0.6, texture(TireMaskMap, v3).x);
+    float v2x = vertexTyre >= 0.0 ? vertexTyre : smoothstep(0.4, 0.6, texture(TireMaskMap, v3).x);
     vec4 r0 = vec4(0.0), r1 = vec4(0.0), r2 = vec4(0.0), r3 = vec4(0.0), r4 = vec4(0.0), r5 = vec4(0.0);
 
     r0.x = inversesqrt(dot(v4, v4));

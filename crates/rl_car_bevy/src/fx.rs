@@ -5,7 +5,7 @@
 //! - jump smoke (`Jump_Metal_PS`), double jump and dodge smoke, glow and the corner ribbons
 //!   (`Dodge_PS`), on the FX actor's Jump / DoubleJump / Dodge events;
 //! - while supersonic: the speed streaks around the car (`Supersonic_Team1_PS`/`Team2_PS`, by team)
-//!   and the wheel trails (`WheelFX_Supersonic_PS`) on the wheels touching the ground;
+//!   and the wheel trails (`WheelFX_Supersonic_PS`) on the back wheels touching the ground;
 //! - sparks where the body hits the world (`VehicleCollisionEffects.FX.Metal_PS`, the arena
 //!   surface's entry of the car's impact effects map);
 //! - the jump, double jump, dodge, landing and impact camera shakes (scaled by impact momentum as
@@ -16,7 +16,7 @@
 //! and the update modules), in Unreal space (uu, Z up) and drawn in Bevy space. The materials are
 //! ports of the game's compiled pixel shaders (`shaders/car_fx.wgsl`). Not reproduced: the jump's
 //! distortion sphere (it refracts the scene behind), and where the native FX code places the wheel
-//! trails (here: on each touching wheel's hub).
+//! trails (here: on each touching back wheel's hub).
 
 use crate::boost::{Dist, Rng};
 use crate::convert::{pos_to_bevy, pos_to_rl};
@@ -998,7 +998,9 @@ pub fn update(
         && s.is_supersonic
     {
         let cfg = s.config();
-        for i in 0..4 {
+        // Only the back wheels (2, 3: back right, back left): the game attaches its supersonic trail
+        // product's two FX actors (LeftFXActor, RightFXActor) there, never on the front wheels.
+        for i in 2..4 {
             if !s.wheel_contacts[i] {
                 continue;
             }

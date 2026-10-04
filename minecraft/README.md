@@ -94,8 +94,8 @@ and ports of the same code (`RlAudio`, `RlFx`):
   out by 64 blocks. The volume follows the *Players* slider. `-Drlcar.audioLog` logs the driven
   car's parameters and voices.
 - **Effects**: jump smoke, double jump and dodge smoke and ribbons, supersonic speed streaks (your
-  own car, as in the game) and wheel trails, impact sparks, simulated from the extracted particle
-  systems and drawn with ports of their shaders (`rl_fx.fsh`).
+  own car, as in the game) and the back wheels' trails, impact sparks, simulated from the extracted
+  particle systems and drawn with ports of their shaders (`rl_fx.fsh`).
 - **Camera shakes**: jump, double jump, dodge, landing, impacts and boost shake the car camera.
   Gamepad rumble is not played (GLFW has no rumble).
 

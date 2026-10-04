@@ -33,6 +33,11 @@ layout(location = 8) out float skyLevel;
 // The ball's position along the field, -1..1 (rl_ball.fsh), in bits 8..14 of UV2.x.
 layout(location = 9) out float fieldY;
 #endif
+#ifdef RL_WHEEL
+// The wheel mesh's vertex colour red (1 = tyre, 0 = rim; rl_wheel.fsh) in bit 9 of UV2.x, bit 8
+// set when the mesh has vertex colours; -1 without them.
+layout(location = 9) out float vertexTyre;
+#endif
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
@@ -51,6 +56,9 @@ void main() {
 #ifdef RL_BALL
     ivec2 lightUv = ivec2(UV2.x & 0xFF, UV2.y);
     fieldY = float((UV2.x >> 8) & 0x7F) / 63.0 - 1.0;
+#elif defined(RL_WHEEL)
+    ivec2 lightUv = ivec2(UV2.x & 0xFF, UV2.y);
+    vertexTyre = (UV2.x & 0x100) != 0 ? float((UV2.x >> 9) & 1) : -1.0;
 #else
     ivec2 lightUv = UV2;
 #endif

@@ -29,6 +29,28 @@ fn signed_frac(x: f32) -> f32 {
     return select(-fract(abs(x)), fract(abs(x)), x >= -x);
 }
 
+// The texture as an anisotropic sampler reads it (4x: the game's MaxAnisotropy, TASystemSettings.ini):
+// the mip level from the footprint's short axis, taps spread along its long axis. The supersonic streaks are a radial blob
+// stretched along the velocity to ~1 pixel by hundreds: a trilinear lookup takes its mip level from
+// the long axis and turns every streak into a flat line of the texture's average.
+fn texture_aniso(uv: vec2<f32>) -> vec4<f32> {
+    let dx = dpdx(uv);
+    let dy = dpdy(uv);
+    let lx = length(dx);
+    let ly = length(dy);
+    let major = select(dy, dx, lx > ly);
+    let l_major = max(lx, ly);
+    let l_minor = max(min(lx, ly), 1e-8);
+    let n = clamp(ceil(l_major / l_minor), 1.0, 4.0);
+    let size = vec2<f32>(textureDimensions(tex, 0));
+    let lod = log2(max(l_major / n, l_minor) * max(size.x, size.y));
+    var sum = vec4(0.0);
+    for (var i = 0.0; i < n; i += 1.0) {
+        sum += textureSampleLevel(tex, tex_sampler, uv + major * ((i + 0.5) / n - 0.5), lod);
+    }
+    return sum / n;
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef VERTEX_UVS_A
@@ -50,9 +72,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     switch params.kind {
         // SupersonicStreaks_Mat (additive): (R + B) / 2 of Radial_Generic_01_Pack. The particle
-        // colour is not used.
+        // colour is not used (the compiled shader has no vertex colour input).
         case 1u: {
-            let t = textureSample(tex, tex_sampler, uv);
+            let t = texture_aniso(uv);
             return vec4(vec3((t.r + t.b) * 0.5), 0.0);
         }
         // Smoke_Puff_01_Mat (translucent): a panning noise (R) distorts the lookup of the puff mask
