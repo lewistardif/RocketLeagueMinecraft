@@ -27,8 +27,8 @@ struct Settings {
 	bool rearCameraToggle = false;
 	bool wallRamps = true;
 	float wallRampRadius = 150;
-	float cacheRadius = 2500;
-	float cacheRefresh = 0.5f;
+	float cacheRadius = 2000;
+	float cacheRefresh = 1.0f;
 	bool ballEnabled = true;
 	FormRef ballForm{"Skyrim.esm", 0x0C8868};
 	bool ballCamOnSpawn = true;

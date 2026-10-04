@@ -29,6 +29,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 	SKSE::Init(skse, {.trampoline = true, .trampolineSize = 256});
 	setupLog();
 	logger::info("RL Car loading (runtime {})", skse->RuntimeVersion().string());
+	if (!REL::Module::IsAE()) {
+		logger::error("RL Car needs the Anniversary Edition runtime (1.6/1.7); not loaded");
+		return false;
+	}
 	SKSE::GetMessagingInterface()->RegisterListener(onMessage);
 	return true;
 }

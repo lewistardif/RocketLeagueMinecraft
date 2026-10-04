@@ -51,6 +51,9 @@ SKSE/Plugins/RLCar/rl_car_ffi.dll
 SKSE/Plugins/RLCar/RLCar.ini
 ```
 
+Don't run it together with SkyCraft (or another plugin that takes over the player's camera and
+controls): both hook the same camera and input functions.
+
 The first run clones and bootstraps its own vcpkg in `skyrim\.tools\vcpkg` (git-ignored) and builds
 CommonLibSSE-NG's dependencies with it, which takes a few minutes. Install `skyrim\stage` as a mod
 (zip it, or copy it into an MO2 mod folder), or copy its `SKSE` folder into Skyrim's `Data`. The log

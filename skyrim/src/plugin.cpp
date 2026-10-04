@@ -367,7 +367,8 @@ void becomeCar(RE::PlayerCharacter* player) {
 	notify("you are the car. " + g_settings.becomeCarKey + " again to get out");
 }
 
-void leaveCar(RE::PlayerCharacter* player, const char* why) {
+// movePlayer: false when a save is about to be loaded over everything anyway.
+void leaveCar(RE::PlayerCharacter* player, const char* why, bool movePlayer = true) {
 	if (!g_car) return;
 	RE::NiPoint3 at = g_car->dropPoint();
 	float heading = float(space::headingOf(space::dirToSky(g_car->pose + 3)));
@@ -375,7 +376,10 @@ void leaveCar(RE::PlayerCharacter* player, const char* why) {
 	             g_car->gathers, g_car->gathers ? g_car->gatherMs / g_car->gathers : 0.0, g_car->gatherMaxMs);
 	camera::release();
 	input::setDriving(false);
-	puppet::end(player, at, heading);
+	if (movePlayer)
+		puppet::end(player, at, heading);
+	else
+		puppet::end(player, player->GetPosition(), player->data.angle.z);
 	g_car.reset();
 }
 
@@ -417,7 +421,7 @@ void install() {
 }
 
 void onLoading(const char* why) {
-	if (auto* player = RE::PlayerCharacter::GetSingleton(); player && g_car) leaveCar(player, why);
+	if (auto* player = RE::PlayerCharacter::GetSingleton(); player && g_car) leaveCar(player, why, false);
 	g_worldId = 0;
 }
 

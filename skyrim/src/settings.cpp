@@ -77,8 +77,8 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	rearCameraToggle = ini.flag("Camera", "RearCameraToggle", false);
 	wallRamps = ini.flag("World", "WallRamps", true);
 	wallRampRadius = std::clamp(ini.numf("World", "WallRampRadius", 150), 50.0f, 2000.0f);
-	cacheRadius = std::clamp(ini.numf("World", "CacheRadius", 2500), 800.0f, 10000.0f);
-	cacheRefresh = std::clamp(ini.numf("World", "CacheRefresh", 0.5f), 0.05f, 5.0f);
+	cacheRadius = std::clamp(ini.numf("World", "CacheRadius", 2000), 800.0f, 10000.0f);
+	cacheRefresh = std::clamp(ini.numf("World", "CacheRefresh", 1.0f), 0.05f, 5.0f);
 	ballEnabled = ini.flag("Ball", "Enabled", true);
 	ballForm = {"Skyrim.esm", 0x0C8868};
 	FormRef::parse(ini.str("Ball", "Form", ""), ballForm);

@@ -152,13 +152,15 @@ Interactions::Hits Interactions::update(const ffi::Api& api, RE::PlayerCharacter
 		RE::NiPoint3 velocity{float(g.x * scale), float(g.y * scale), float(g.z * scale)};
 		RE::NiPoint3 push{float(g.x), float(g.y), 0.0f};
 		float speed = float(std::sqrt(g.x * g.x + g.y * g.y + g.z * g.z) * scale);
+		// Hitting an enemy is no crime, nor is shoving a follower.
+		bool crime = s.crime && !a->IsPlayerTeammate() && !a->IsHostileToActor(player);
 		if (r == 2) {
 			float health = a->AsActorValueOwner()->GetActorValue(RE::ActorValue::kHealth);
 			a->KillImpl(player, health + 1.0f, true, true);
-			if (s.crime) reportCrime(a, true);
+			if (crime) reportCrime(a, true);
 			hits.demolished++;
 		} else {
-			if (s.crime && !a->IsHostileToActor(player)) reportCrime(a, false);
+			if (crime) reportCrime(a, false);
 			if (!a->IsPlayerTeammate() && !a->IsInCombat()) a->StartCombat(player);
 			hits.bumped++;
 		}
