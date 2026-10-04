@@ -51,9 +51,11 @@ public final class RlModels {
 	/**
 	 * One textured triangle list. Triangles are drawn as quads with a repeated last vertex.
 	 * {@code uvs1} is the second UV set (a copy of the first when the mesh has only one).
-	 * {@code material} is the glTF material's name (the game's material instance).
+	 * {@code material} is the glTF material's name (the game's material instance). {@code colors} are
+	 * the game mesh's vertex colours (RGBA; {@code _RL_VERTEX_COLOR}, written by the extractor for
+	 * meshes whose material reads them, such as the wheel's), or null.
 	 */
-	public record Part(String material, Identifier texture, float[] positions, float[] normals, float[] uvs, float[] uvs1, int[] triangles) {
+	public record Part(String material, Identifier texture, float[] positions, float[] normals, float[] uvs, float[] uvs1, float @Nullable [] colors, int[] triangles) {
 	}
 
 	public record Model(List<Part> parts) {
@@ -169,12 +171,13 @@ public final class RlModels {
 				float[] nrm = attr.has("NORMAL") ? floats(g, buffers, attr.get("NORMAL").getAsInt(), 3) : new float[pos.length];
 				float[] uv = attr.has("TEXCOORD_0") ? floats(g, buffers, attr.get("TEXCOORD_0").getAsInt(), 2) : new float[pos.length / 3 * 2];
 				float[] uv1 = attr.has("TEXCOORD_1") ? floats(g, buffers, attr.get("TEXCOORD_1").getAsInt(), 2) : uv;
+				float[] colors = attr.has("_RL_VERTEX_COLOR") ? floats(g, buffers, attr.get("_RL_VERTEX_COLOR").getAsInt(), 4) : null;
 				int[] tris = prim.has("indices") ? ints(g, buffers, prim.get("indices").getAsInt()) : sequence(pos.length / 3);
 				int material = prim.has("material") ? prim.get("material").getAsInt() : -1;
 				Identifier tex = baseColor(g, dir, material);
 				JsonObject mat = material >= 0 ? g.getAsJsonArray("materials").get(material).getAsJsonObject() : null;
 				String name = mat != null && mat.has("name") ? mat.get("name").getAsString() : "";
-				parts.add(new Part(name, tex, pos, nrm, uv, uv1, tris));
+				parts.add(new Part(name, tex, pos, nrm, uv, uv1, colors, tris));
 			}
 		}
 		return new Model(parts);

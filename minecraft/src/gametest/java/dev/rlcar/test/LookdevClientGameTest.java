@@ -1,11 +1,15 @@
 package dev.rlcar.test;
 
 import dev.rlcar.RlCar;
+import dev.rlcar.client.CarKeys;
+import dev.rlcar.client.ClientDriving;
+import dev.rlcar.client.RlFx;
 import dev.rlcar.entity.BallEntity;
 import dev.rlcar.entity.CarEntity;
 import dev.rlcar.physics.RlCarNative;
 import java.nio.file.Path;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
+import net.fabricmc.fabric.api.client.gametest.v1.TestInput;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.screenshot.TestScreenshotOptions;
@@ -51,6 +55,9 @@ public class LookdevClientGameTest implements FabricClientGameTest {
 			view(ctx, sp, car, 2.8, 0.7, 0.2, "side");
 			view(ctx, sp, car, 1.6, 0.9, 2.2, "front");
 			view(ctx, sp, car, -0.6, 1.9, -1.2, "engine");
+			// The wheels close up: the front and rear right ones, from the side.
+			view(ctx, sp, car.add(0.42, -0.2, 0.86), 1.0, 0.3, 0.3, "wheel-front");
+			view(ctx, sp, car.add(0.42, -0.2, -0.75), 1.0, 0.3, -0.3, "wheel-rear");
 
 			// Every hitbox preset (every chassis material) in a row, from behind and the front.
 			sp.getServer().runCommand("kill @e[type=rlcar:car]");
@@ -69,7 +76,36 @@ public class LookdevClientGameTest implements FabricClientGameTest {
 			}
 			sp.getServer().runCommand("kill @e[type=rlcar:car]");
 			ball(ctx, sp, p);
+			supersonic(ctx, sp, p);
 		}
+	}
+
+	/** Supersonic: the blue Octane on full boost, from its chase camera (the streaks are only drawn for the driver). */
+	private static void supersonic(ClientGameTestContext ctx, TestSingleplayerContext sp, BlockPos p) {
+		sp.getServer().runCommand("kill @e[type=rlcar:ball]");
+		sp.getServer().runCommand("gamemode creative @a");
+		sp.getServer().runOnServer(server -> {
+			ServerLevel level = server.overworld();
+			CarEntity car = CarEntity.create(level, Vec3.atBottomCenterOf(p).add(0, 0.3, 20), -90.0F, 0, CarEntity.BLUE);
+			level.addFreshEntity(car);
+			if (!server.getPlayerList().getPlayers().getFirst().startRiding(car)) {
+				throw new AssertionError("player could not get into the car");
+			}
+		});
+		ctx.waitTicks(20);
+		ctx.runOnClient(mc -> mc.gui.hud.toggle());
+		TestInput input = ctx.getInput();
+		input.holdKey(CarKeys.THROTTLE);
+		input.holdKey(CarKeys.BOOST);
+		ctx.waitTicks(70);
+		for (int i = 0; i < 3; i++) {
+			RlCar.LOG.info("rlcar lookdev: supersonic {}, {} particles", ClientDriving.isDriving(), ctx.computeOnClient(mc -> RlFx.particles()));
+			Path path = ctx.takeScreenshot(TestScreenshotOptions.of("rlcar-lookdev-supersonic-" + i).withSize(1600, 900));
+			RlCar.LOG.info("rlcar lookdev: screenshot {}", path.toAbsolutePath());
+			ctx.waitTicks(3);
+		}
+		input.releaseKey(CarKeys.BOOST);
+		input.releaseKey(CarKeys.THROTTLE);
 	}
 
 	/**
@@ -114,9 +150,9 @@ public class LookdevClientGameTest implements FabricClientGameTest {
 	}
 
 	private static void view(ClientGameTestContext ctx, TestSingleplayerContext sp, Vec3 car, double dx, double dy, double dz, String name) {
-		// tp places the feet; the eye is 1.62 above them.
+		// tp places the feet, and "facing" aims from them; the eye is 1.62 above them.
 		Vec3 eye = car.add(dx, dy, dz);
-		sp.getServer().runCommand("tp @p " + eye.x + " " + (eye.y - 1.62) + " " + eye.z + " facing " + car.x + " " + car.y + " " + car.z);
+		sp.getServer().runCommand("tp @p " + eye.x + " " + (eye.y - 1.62) + " " + eye.z + " facing " + car.x + " " + (car.y - 1.62) + " " + car.z);
 		ctx.waitTicks(10);
 		Path path = ctx.takeScreenshot(TestScreenshotOptions.of("rlcar-lookdev-" + name).withSize(1600, 900));
 		RlCar.LOG.info("rlcar lookdev: screenshot {}", path.toAbsolutePath());

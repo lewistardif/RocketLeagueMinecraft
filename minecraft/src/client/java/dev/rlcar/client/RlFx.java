@@ -52,7 +52,7 @@ import org.jspecify.annotations.Nullable;
  * <li>jump smoke ({@code Jump_Metal_PS}), double jump and dodge smoke, glow and the corner ribbons
  * ({@code Dodge_PS}), on the FX actor's Jump / DoubleJump / Dodge events;</li>
  * <li>while supersonic: the speed streaks around the car (your own car, by team, as in the game)
- * and the wheel trails ({@code WheelFX_Supersonic_PS}) on the wheels touching the ground;</li>
+ * and the wheel trails ({@code WheelFX_Supersonic_PS}) on the back wheels touching the ground;</li>
  * <li>sparks where the body hits the world ({@code VehicleCollisionEffects.FX.Metal_PS});</li>
  * <li>the jump, double jump, dodge, landing, impact and boost camera shakes on the driven car's
  * camera (scaled by impact momentum as the game scales them).</li>
@@ -62,7 +62,7 @@ import org.jspecify.annotations.Nullable;
  * sprites and ribbons with ports of the game's compiled pixel shaders
  * ({@code assets/rlcar/shaders/core/rl_fx.fsh}). Not reproduced (as in the Bevy demo): the jump's
  * distortion sphere, and where the native FX code places the wheel trails (here: on each touching
- * wheel's hub). The gamepad rumble is not played: the mod reads pads through GLFW, which has no
+ * back wheel's hub). The gamepad rumble is not played: the mod reads pads through GLFW, which has no
  * rumble.
  */
 public final class RlFx {
@@ -1143,7 +1143,9 @@ public final class RlFx {
 			}
 		}
 		if (d.wheelSupersonic != null && supersonic) {
-			for (int i = 0; i < 4; i++) {
+			// Only the back wheels (2, 3: back right, back left): the game attaches its supersonic trail
+			// product's two FX actors (LeftFXActor, RightFXActor) there, never on the front wheels.
+			for (int i = 2; i < 4; i++) {
 				if ((pose.flags & 1 << RlCarNative.FLAG_WHEEL_CONTACT_SHIFT + i) == 0) {
 					continue;
 				}

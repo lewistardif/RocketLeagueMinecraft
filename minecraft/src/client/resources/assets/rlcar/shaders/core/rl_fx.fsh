@@ -39,13 +39,35 @@ vec3 linearToSrgb(vec3 c) {
     return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
 }
 
+// The texture as an anisotropic sampler reads it (4x: the game's MaxAnisotropy, TASystemSettings.ini):
+// the mip level from the footprint's short axis, taps spread along its long axis. The supersonic streaks are a radial blob
+// stretched along the velocity to ~1 pixel by hundreds: a trilinear lookup takes its mip level from
+// the long axis and turns every streak into a flat line of the texture's average.
+vec4 textureAniso(vec2 uv) {
+    vec2 dx = dFdx(uv);
+    vec2 dy = dFdy(uv);
+    float lx = length(dx);
+    float ly = length(dy);
+    vec2 major = lx > ly ? dx : dy;
+    float lMajor = max(lx, ly);
+    float lMinor = max(min(lx, ly), 1e-8);
+    float n = clamp(ceil(lMajor / lMinor), 1.0, 4.0);
+    vec2 size = vec2(textureSize(Sampler0, 0));
+    float lod = log2(max(lMajor / n, lMinor) * max(size.x, size.y));
+    vec4 sum = vec4(0.0);
+    for (float i = 0.0; i < n; i += 1.0) {
+        sum += textureLod(Sampler0, uv + major * ((i + 0.5) / n - 0.5), lod);
+    }
+    return sum / n;
+}
+
 // The material: linear rgb and (translucent materials) alpha.
 vec4 shade(vec2 uv, vec2 uvB, vec4 c) {
     float time = GameTime * 1200.0; // seconds
 #if FX_KIND == 1
     // SupersonicStreaks_Mat (additive): (R + B) / 2 of Radial_Generic_01_Pack. The particle colour
-    // is not used.
-    vec4 t = texture(Sampler0, uv);
+    // is not used (the compiled shader has no vertex colour input).
+    vec4 t = textureAniso(uv);
     return vec4(vec3((t.r + t.b) * 0.5), 0.0);
 #elif FX_KIND == 2
     // Smoke_Puff_01_Mat (translucent): a panning noise (R) distorts the lookup of the puff mask
