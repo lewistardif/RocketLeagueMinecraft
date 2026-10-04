@@ -3,6 +3,7 @@
 #include "havok_world.h"
 #include "ini.h"
 #include "input.h"
+#include "interact.h"
 #include "puppet.h"
 #include "rlcar_ffi.h"
 #include "settings.h"
@@ -70,10 +71,19 @@ struct RlCar {
 	float logTimer = 0;
 	RE::NiPoint3 heldFeet;
 	bool held = false;
+	ffi::Ball* ball = nullptr;
+	visual::Prop ballProp;
+	float ballPose[ffi::BALL_POSE_FLOATS] = {};
+	space::Quat ballRot;
+	float ballModelRadius = 1, ballCacheAge = 0;
+	bool ballCam = false;
+	havok::Stats ballStats;
+	Interactions interactions;
 
 	~RlCar() { destroy(); }
 
 	void destroy() {
+		removeBall();
 		body.remove();
 		if (camera) g_api.camera_free(camera), camera = nullptr;
 		if (world) g_api.cbworld_free(world), world = nullptr;
@@ -119,6 +129,8 @@ struct RlCar {
 
 	// The car upright where the player is, the collision copied again from scratch.
 	void startAt(RE::PlayerCharacter* player, float heading) {
+		removeBall();
+		interactions.clear();
 		auto at = player->GetPosition();
 		frame.origin = {at.x, at.y, at.z};
 		float pos[3] = {0, 0, 20};
@@ -141,9 +153,9 @@ struct RlCar {
 			q.lo[i] = centre - R, q.hi[i] = centre + R;
 		}
 		q.ignore[0] = body.get();
+		q.ignore[1] = ballProp.get();
 		havok::gather(player->GetParentCell(), q, sky->car, stats);
 		sky->boxCache = &sky->car;
-		sky->sphereCache = &sky->car;
 		cacheAge = 0;
 		gathers++;
 		gatherMs += stats.ms;
@@ -165,6 +177,86 @@ struct RlCar {
 		if (edge || cacheAge >= g_settings.cacheRefresh) gather(player);
 	}
 
+	void removeBall() {
+		ballProp.remove();
+		if (ball) g_api.ball_free(ball), ball = nullptr;
+		ballCam = false;
+	}
+
+	bool spawnBall(RE::PlayerCharacter* player) {
+		auto* ballBase = visual::lookup(g_settings.ballForm.plugin, g_settings.ballForm.id);
+		if (!ballBase) {
+			logger::warn("Ball Form {}|{:06X} not found; using Skyrim.esm|0C8868", g_settings.ballForm.plugin, g_settings.ballForm.id);
+			ballBase = visual::lookup("Skyrim.esm", 0x0C8868);
+		}
+		if (!ballProp.get() && (!ballBase || !ballProp.spawn(ballBase, player))) {
+			logger::error("could not place the ball's model");
+			return false;
+		}
+		ballModelRadius = 1;
+		for (int i = 0; i < 3; i++) ballModelRadius = std::max(ballModelRadius, (ballProp.boundMax[i] - ballProp.boundMin[i]) * 0.5f);
+		if (!ball) ball = g_api.ball_new();
+		g_api.ball_set_config(ball, g_settings.ball);
+		float fx = pose[3], fy = pose[4], fl = std::sqrt(fx * fx + fy * fy);
+		if (fl < 1e-3f) fx = 1, fy = 0, fl = 1;
+		float pos[3] = {pose[0] + fx / fl * 800, pose[1] + fy / fl * 800, pose[2] + 250};
+		float vel[3] = {0, 0, -1};
+		g_api.ball_reset(ball, pos, vel, nullptr);
+		g_api.ball_pose(ball, 1, ballPose);
+		ballRot = {};
+		ballCam = g_settings.ballCamOnSpawn;
+		ballCacheAge = 1e9f;
+		logger::info("ball: {} {:08X}, radius {:.2f} uu = {:.0f} units, model scale {:.2f}", ballBase ? ballBase->GetName() : "?",
+		             ballBase ? ballBase->GetFormID() : 0, g_settings.ball[0], frame.lenToSky(g_settings.ball[0]),
+		             frame.lenToSky(g_settings.ball[0]) / ballModelRadius);
+		return true;
+	}
+
+	// The ball collides with the car's copy while it's inside it, else with its own copy around it.
+	void ballCollision(RE::PlayerCharacter* player, float delta) {
+		const float r = g_settings.ball[0];
+		ballCacheAge += delta;
+		if (sky->car.covers(ballPose, r + 300.0f)) {
+			sky->sphereCache = &sky->car;
+			return;
+		}
+		if (!sky->ball.covers(ballPose, r + 300.0f) || ballCacheAge >= g_settings.cacheRefresh) {
+			havok::Query q;
+			q.frame = &frame;
+			const float R = std::max(r * 4, 1500.0f);
+			for (int i = 0; i < 3; i++) {
+				float centre = ballPose[i] + std::clamp(ballPose[3 + i] * 0.25f, -R * 0.3f, R * 0.3f);
+				q.lo[i] = centre - R, q.hi[i] = centre + R;
+			}
+			q.ignore[0] = body.get();
+			q.ignore[1] = ballProp.get();
+			havok::gather(player->GetParentCell(), q, sky->ball, ballStats);
+			ballCacheAge = 0;
+		}
+		sky->sphereCache = &sky->ball;
+	}
+
+	void applyBallPose(RE::PlayerCharacter* player, float alpha, float dt) {
+		if (!ball) return;
+		g_api.ball_pose(ball, alpha, ballPose);
+		ballRot = space::spin(ballRot, space::spinToSky(ballPose + 6), dt);
+		double m[3][3];
+		space::quatToMatrix(ballRot, m);
+		float s = float(frame.lenToSky(g_settings.ball[0]) / ballModelRadius);
+		double c[3] = {(ballProp.boundMin[0] + ballProp.boundMax[0]) * 0.5 * s, (ballProp.boundMin[1] + ballProp.boundMax[1]) * 0.5 * s,
+		               (ballProp.boundMin[2] + ballProp.boundMax[2]) * 0.5 * s};
+		space::V3 p = frame.toSky(ballPose);
+		RE::NiPoint3 origin{float(p.x - (m[0][0] * c[0] + m[0][1] * c[1] + m[0][2] * c[2])), float(p.y - (m[1][0] * c[0] + m[1][1] * c[1] + m[1][2] * c[2])),
+		                    float(p.z - (m[2][0] * c[0] + m[2][1] * c[1] + m[2][2] * c[2]))};
+		ballProp.place(player, origin, niMatrix(m), s);
+		float dx = ballPose[0] - pose[0], dy = ballPose[1] - pose[1], dz = ballPose[2] - pose[2];
+		if (dx * dx + dy * dy + dz * dz > 15000.0f * 15000.0f || ballPose[2] - pose[2] < -20000.0f) {
+			logger::info("the ball is lost ({:.0f} uu away); removed", std::sqrt(dx * dx + dy * dy + dz * dz));
+			notify("the ball is lost");
+			removeBall();
+		}
+	}
+
 	void reset() {
 		float pos[3] = {pose[0], pose[1], pose[2] + 20};
 		g_api.car_reset(car, pos, std::atan2(pose[4], pose[3]), 0, 0);
@@ -178,7 +270,12 @@ struct RlCar {
 		frame.origin = frame.toSky(pose);
 		g_api.car_translate(car, d);
 		g_api.camera_translate(camera, d);
+		if (ball) {
+			g_api.ball_translate(ball, d);
+			for (int i = 0; i < 3; i++) ballPose[i] += d[i];
+		}
 		sky->car.translate(d);
+		sky->ball.translate(d);
 		sky->forget();
 		for (int i = 0; i < 3; i++) pose[i] += d[i];
 		gather(player);
@@ -218,8 +315,8 @@ struct RlCar {
 
 	void updateCamera(RE::PlayerCharacter* player, float alpha, float dt, const DriveInput& in) {
 		float view[ffi::CAMERA_VIEW_FLOATS];
-		uint32_t f = rearView ? ffi::CAMERA_REAR_VIEW : 0;
-		if (!g_api.camera_update(camera, car, alpha, dt, g_settings.camera, in.lookRight, in.lookUp, f, view)) return;
+		uint32_t f = (rearView ? ffi::CAMERA_REAR_VIEW : 0) | (ballCam && ball ? ffi::CAMERA_BALL_CAM : 0);
+		if (!g_api.camera_update_ball(camera, car, ball, alpha, dt, g_settings.camera, in.lookRight, in.lookUp, f, view)) return;
 		camera::set(player, ni(frame.toSky(view)), space::cameraToSky(view + 3), float(space::verticalFovToSkyrim(view[13])));
 	}
 
@@ -245,6 +342,7 @@ bool loadSettings() {
 	g_settings.load(ini, g_api);
 	if (g_car && g_car->car) {
 		g_api.car_set_config(g_car->car, g_settings.sim);
+		if (g_car->ball) g_api.ball_set_config(g_car->ball, g_settings.ball);
 		g_car->sky->wallRamps = g_settings.wallRamps;
 		g_car->sky->rampRadius = g_settings.wallRampRadius;
 		g_car->sky->forget();
@@ -355,16 +453,28 @@ void update(RE::PlayerCharacter* player, float delta) {
 		drive = g_settings.bindings.drive(in);
 		if (g_edges.pressed(Action::ResetCar)) c.reset();
 		c.rearView = g_settings.rearCameraToggle ? (c.rearView != g_edges.pressed(Action::RearCamera)) : drive.rearCamera;
+		if (g_edges.pressed(Action::SpawnBall) && g_settings.ballEnabled && !c.spawnBall(player)) notify("could not create the ball");
+		if (g_edges.pressed(Action::BallCam) && c.ball) c.ballCam = !c.ballCam;
 	}
 
 	float dt = std::min(delta, 0.1f);
 	if (dt > 0 && !menu) {
 		c.refresh(player, dt);
 		uint32_t b = (drive.jump ? ffi::buttons::JUMP : 0) | (drive.boost ? ffi::buttons::BOOST : 0) | (drive.handbrake ? ffi::buttons::HANDBRAKE : 0);
-		g_api.car_advance_cb(c.car, c.world, dt, drive.throttle, drive.steer, drive.pitch, drive.yaw, drive.roll, b);
+		if (c.ball) {
+			c.ballCollision(player, dt);
+			g_api.scene_advance_cb(c.car, c.ball, c.world, dt, drive.throttle, drive.steer, drive.pitch, drive.yaw, drive.roll, b);
+		} else {
+			g_api.car_advance_cb(c.car, c.world, dt, drive.throttle, drive.steer, drive.pitch, drive.yaw, drive.roll, b);
+		}
+		float speed = std::sqrt(c.pose[12] * c.pose[12] + c.pose[13] * c.pose[13] + c.pose[14] * c.pose[14]);
+		CarView view{&c.frame, c.pose, {}, c.car, speed * dt + 10.0f};
+		std::copy(c.hitbox, c.hitbox + 6, view.hitbox);
+		c.interactions.update(g_api, player, view, g_settings.interact, dt);
 	}
 	float alpha = g_api.car_alpha(c.car);
 	c.applyPose(player, alpha);
+	c.applyBallPose(player, alpha, menu ? 0.0f : dt);
 	c.updateCamera(player, alpha, menu ? 0.0f : dt, drive);
 	c.recentre(player);
 

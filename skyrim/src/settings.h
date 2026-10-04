@@ -1,5 +1,6 @@
 #pragma once
 #include "bindings.h"
+#include "interact_settings.h"
 #include "rlcar_ffi.h"
 #include <cstdint>
 #include <string>
@@ -28,6 +29,11 @@ struct Settings {
 	float wallRampRadius = 150;
 	float cacheRadius = 2500;
 	float cacheRefresh = 0.5f;
+	bool ballEnabled = true;
+	FormRef ballForm{"Skyrim.esm", 0x0C8868};
+	bool ballCamOnSpawn = true;
+	float ball[ffi::BALL_CONFIG_FLOATS] = {};
+	InteractSettings interact;
 	std::string becomeCarKey = "F7";
 	Bindings bindings;
 

@@ -37,7 +37,7 @@ add_commonlibsse_plugin(
 	AUTHOR "RocketLeagueMinecraft"
 	USE_ADDRESS_LIBRARY
 	SOURCES
-		src/main.cpp src/plugin.cpp src/havok_world.cpp src/puppet.cpp src/camera.cpp src/input.cpp src/visual.cpp
+		src/main.cpp src/plugin.cpp src/havok_world.cpp src/puppet.cpp src/camera.cpp src/input.cpp src/visual.cpp src/interact.cpp
 		src/hid_pad.cpp ${CORE_SOURCES}
 )
 target_include_directories(RLCar PRIVATE src)

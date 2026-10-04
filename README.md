@@ -26,8 +26,8 @@ the six hitbox presets, car-vs-world collision) as:
    through the C ABI, with the ball, Rocket League's camera and ball cam, controller support, and
    bumps and demolitions against GTA's cars and pedestrians. See [`gta/README.md`](gta/README.md).
 6. **`skyrim/`**: a **Skyrim Special Edition** (AE runtime) SKSE plugin that turns the Dragonborn into
-   the car, driving on Skyrim's terrain and statics copied out of Havok, with Rocket League's camera.
-   See [`skyrim/README.md`](skyrim/README.md).
+   the car, driving on Skyrim's collision copied out of Havok, with the ball, Rocket League's camera
+   and ball cam, and bumps and demolitions of Skyrim's NPCs. See [`skyrim/README.md`](skyrim/README.md).
 
 The core also simulates **the ball** (RocketSim's soccar ball, stepped together with the cars:
 `step_scene`), validated against RocketSim the same way as the car.

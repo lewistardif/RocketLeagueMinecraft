@@ -1,4 +1,5 @@
 #include "../src/bindings.h"
+#include "../src/geom.h"
 #include "../src/ini.h"
 #include "../src/rlcar_ffi.h"
 #include "../src/settings.h"
@@ -119,6 +120,54 @@ static void testIniAndSettings() {
 	empty.loadText("");
 	s.load(empty, api);
 	CHECK(s.worldScale == 0 && s.carForm.id == 0x1C0C0 && s.sim[10] == 1 && s.wallRamps);
+	CHECK(s.ballEnabled && s.ballForm.id == 0x0C8868 && s.ball[0] == 91.25f);
+	CHECK(s.interact.enabled && s.interact.demolish && s.interact.crime && s.interact.ragdoll && !s.interact.demolishFollowers);
+	Ini more;
+	more.loadText("[Ball]\nForm = Skyrim.esm|0x0000000F\nRadius = 120\nBallCamOnSpawn = 0\n[Interaction]\nCrime = 0\nRagdoll = off\nActorMass = 0\n");
+	s.load(more, api);
+	CHECK(s.ballForm.id == 0xF && s.ball[0] == 120.0f && !s.ballCamOnSpawn);
+	CHECK(!s.interact.crime && !s.interact.ragdoll && s.interact.actorMass >= 1.0f);
+}
+
+static void testGeomAndBump() {
+	geom::Box a{{0, 0, 0}, {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}, {60, 40, 18}};
+	geom::Box b = a;
+	b.c[0] = 130;
+	b.h[0] = 80;
+	CHECK(geom::overlap(a, b));
+	b.c[0] = 141;
+	CHECK(!geom::overlap(a, b));
+	float p[3] = {500, 10, -100}, local[3];
+	geom::closestLocal(a, p, local);
+	CHECK_NEAR(local[0], 60, 1e-4);
+	CHECK_NEAR(local[2], -18, 1e-4);
+
+	// An actor in front of a supersonic car is demolished (or, if not allowed, sent flying); one
+	// beside a parked car isn't bumped at all.
+	sky::SkyWorld w;
+	w.wallRamps = false;
+	quad(w.car, -20000, -2000, 20000, 2000, 0);
+	finish(w.car, -20000, -2000, -100, 20000, 2000, 500);
+	ffi::World* cw = api.cbworld_new(&w, &sky::SkyWorld::cbRaycast, &sky::SkyWorld::cbBox, &sky::SkyWorld::cbSphere);
+	ffi::Car* car = api.car_new(0);
+	float pos[3] = {-18000, 0, 20}, pose[ffi::POSE_FLOATS];
+	api.car_reset(car, pos, 0, 0, 0);
+	api.car_set_unlimited_boost(car, 1);
+	uint32_t flags = 0;
+	for (int t = 0; t < 600 && !(flags & ffi::flags::SUPERSONIC); t++) {
+		api.car_step_cb(car, cw, 1, 1.0f, 0, 0, 0, 0, ffi::buttons::BOOST);
+		flags = api.car_pose(car, 1, pose);
+	}
+	CHECK(flags & ffi::flags::SUPERSONIC);
+	float victim[3] = {pose[0] + 120, pose[1], 90}, still[3] = {0, 0, 0}, up[3] = {0, 0, 1}, dv[3] = {};
+	CHECK(api.car_bump(car, victim, still, 1, up, 70, 1, 1, dv) == 2);
+	CHECK(api.car_bump(car, victim, still, 1, up, 70, 1, 0, dv) == 1 && dv[0] > 500);
+	float parked[3] = {-18000, 0, 20};
+	api.car_reset(car, parked, 0, 0, 0);
+	float beside[3] = {-18000, 100, 90};
+	CHECK(api.car_bump(car, beside, still, 1, up, 0, 1, 1, dv) == 0);
+	api.car_free(car);
+	api.cbworld_free(cw);
 }
 
 static void testBindings() {
@@ -531,6 +580,7 @@ int main(int argc, char** argv) {
 	testSpace();
 	testIniAndSettings();
 	testBindings();
+	testGeomAndBump();
 	testContacts();
 	testFloorMatchesReference();
 	testTerrainSeams();
