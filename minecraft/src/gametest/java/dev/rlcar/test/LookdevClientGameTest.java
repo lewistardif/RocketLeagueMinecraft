@@ -77,6 +77,7 @@ public class LookdevClientGameTest implements FabricClientGameTest {
 			sp.getServer().runCommand("kill @e[type=rlcar:car]");
 			ball(ctx, sp, p);
 			supersonic(ctx, sp, p);
+			fx(ctx, sp, p);
 		}
 	}
 
@@ -106,6 +107,60 @@ public class LookdevClientGameTest implements FabricClientGameTest {
 		}
 		input.releaseKey(CarKeys.BOOST);
 		input.releaseKey(CarKeys.THROTTLE);
+	}
+
+	/**
+	 * The boost and its smoke up close, how they composite: the blue Octane boosting against a wall
+	 * (boost is unlimited, so it stays put), from its chase camera; then with a slab between the
+	 * camera and the exhaust (the effects must hide behind it like the car), with improved
+	 * transparency, at night, and in the blindness fog.
+	 */
+	private static void fx(ClientGameTestContext ctx, TestSingleplayerContext sp, BlockPos p) {
+		sp.getServer().runCommand("kill @e[type=rlcar:car]");
+		sp.getServer().runCommand("time set noon");
+		BlockPos at = p.offset(0, 0, 40);
+		sp.getServer().runCommand("fill " + (at.getX() - 6) + " " + at.getY() + " " + (at.getZ() + 3) + " " + (at.getX() + 6) + " " + (at.getY() + 5) + " " + (at.getZ() + 3) + " minecraft:stone");
+		sp.getServer().runOnServer(server -> {
+			ServerLevel level = server.overworld();
+			CarEntity car = CarEntity.create(level, Vec3.atBottomCenterOf(at).add(0, 0.3, 0), 0.0F, 0, CarEntity.BLUE);
+			level.addFreshEntity(car);
+			if (!server.getPlayerList().getPlayers().getFirst().startRiding(car)) {
+				throw new AssertionError("player could not get into the car");
+			}
+		});
+		ctx.waitTicks(10);
+		TestInput input = ctx.getInput();
+		input.holdKey(CarKeys.THROTTLE);
+		input.holdKey(CarKeys.BOOST);
+		ctx.waitTicks(50);
+		fxShot(ctx, "fx-boost");
+		// A slab on the ground just behind the car: it hides the bottom of the car and the exhaust.
+		BlockPos block = at.offset(0, 0, 1);
+		sp.getServer().runCommand("setblock " + block.getX() + " " + block.getY() + " " + block.getZ() + " minecraft:stone_slab[type=bottom]");
+		ctx.waitTicks(10);
+		fxShot(ctx, "fx-boost-occluded");
+		ctx.runOnClient(mc -> mc.options.improvedTransparency().set(true));
+		sp.getConnection().waitForChunksRender();
+		ctx.waitTicks(10);
+		fxShot(ctx, "fx-boost-occluded-oit");
+		ctx.runOnClient(mc -> mc.options.improvedTransparency().set(false));
+		sp.getServer().runCommand("setblock " + block.getX() + " " + block.getY() + " " + block.getZ() + " minecraft:air");
+		sp.getConnection().waitForChunksRender();
+		sp.getServer().runCommand("time set midnight");
+		ctx.waitTicks(10);
+		fxShot(ctx, "fx-boost-night");
+		sp.getServer().runCommand("time set noon");
+		sp.getServer().runCommand("effect give @a minecraft:blindness 30 0 true");
+		ctx.waitTicks(30);
+		fxShot(ctx, "fx-boost-blind");
+		sp.getServer().runCommand("effect clear @a");
+		input.releaseKey(CarKeys.BOOST);
+		input.releaseKey(CarKeys.THROTTLE);
+	}
+
+	private static void fxShot(ClientGameTestContext ctx, String name) {
+		Path path = ctx.takeScreenshot(TestScreenshotOptions.of("rlcar-lookdev-" + name).withSize(1600, 900));
+		RlCar.LOG.info("rlcar lookdev: screenshot {}, {} particles", path.toAbsolutePath(), ctx.computeOnClient(mc -> RlFx.particles()));
 	}
 
 	/**

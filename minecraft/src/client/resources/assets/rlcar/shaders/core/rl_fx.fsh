@@ -9,8 +9,12 @@
 // (across 0..1, distance along the trail / TilingDistance). The vertex colour is the particle
 // colour (HDR) and alpha. Sampler0 is the material's texture, sampled as stored (not sRGB).
 //
-// The game adds or blends linear light; Minecraft blends sRGB values, so the result is converted
-// to sRGB here (additive materials) or before blending (translucent ones), as the boost shaders do.
+// The game adds or blends linear light into an HDR scene colour. With FX_LINEAR (the usual way,
+// dev.rlcar.client.LinearFx) the output is just that: linear premultiplied light for an RGBA16F
+// target blended One / OneMinusSrcAlpha (additive: rgb, alpha 0; translucent: rgb * alpha, alpha),
+// composited over the scene once. Without it (shader packs, or the pass unavailable) Minecraft
+// blends sRGB values into its main target, so the result is converted to sRGB first, which makes
+// faint additive glows much brighter than in the game.
 
 #include <minecraft:globals.glsl>
 #include <minecraft:fog.glsl>
@@ -37,6 +41,10 @@ float signedFrac(float x) {
 vec3 linearToSrgb(vec3 c) {
     c = max(c, vec3(0.0));
     return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+
+vec3 srgbToLinear(vec3 c) {
+    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
 }
 
 // The texture as an anisotropic sampler reads it (4x: the game's MaxAnisotropy, TASystemSettings.ini):
@@ -128,7 +136,15 @@ vec4 shade(vec2 uv, vec2 uvB, vec4 c) {
 void main() {
     vec4 s = shade(texCoord0, texCoord1, vertexColor);
     float fog = total_fog_value(sphericalVertexDistance, cylindricalVertexDistance, FogEnvironmentalStart, FogEnvironmentalEnd, FogRenderDistanceStart, FogRenderDistanceEnd);
-#ifdef ADDITIVE
+#if defined(FX_LINEAR) && defined(ADDITIVE)
+    // Faded out in the fog, as below.
+    fragColor = vec4(max(s.rgb, 0.0) * ColorModulator.rgb * (1.0 - fog), 0.0);
+#elif defined(FX_LINEAR)
+    // Towards the fog colour (apply_fog, in linear light), then premultiplied.
+    float a = clamp(s.a, 0.0, 1.0) * ColorModulator.a;
+    vec3 rgb = mix(max(s.rgb, 0.0) * ColorModulator.rgb, srgbToLinear(FogColor.rgb), fog * FogColor.a);
+    fragColor = vec4(rgb * a, a);
+#elif defined(ADDITIVE)
     vec3 added = clamp(s.rgb, 0.0, 1.0) * (1.0 - fog);
     vec4 color = vec4(linearToSrgb(added), 1.0) * ColorModulator;
     #ifdef OIT_ALPHA_ONLY

@@ -14,6 +14,7 @@ import com.mojang.renderpearl.api.pipeline.DepthStencilState;
 import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.GpuSampler;
 import dev.rlcar.RlCar;
 import dev.rlcar.client.RlBoost.Dist;
 import dev.rlcar.client.RlBoost.Rng;
@@ -29,6 +30,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -417,8 +419,12 @@ public final class RlFx {
 	// ----------------------------------------------------------------------------- pipelines
 
 	private static final Map<String, RenderPipeline> PIPELINES = new HashMap<>();
+	/** The same, drawing linear light for {@link LinearFx}. */
+	private static final Map<String, RenderPipeline> LINEAR = new HashMap<>();
 	private static final Map<String, OitPipelineSet> OIT = new HashMap<>();
 	private static final Map<String, @Nullable RenderType> TYPES = new HashMap<>();
+	/** Each render type's textures, for drawing with {@link #LINEAR}. */
+	private static final Map<String, List<LinearFx.Tex>> TEXTURES = new HashMap<>();
 
 	/** Registers a pipeline per ported material (before the first resource load compiles them). */
 	public static void registerPipelines() {
@@ -446,6 +452,11 @@ public final class RlFx {
 				.withLocation(RlCar.id("pipeline/fx_" + key))
 				.withColorTargetState(new ColorTargetState(m.additive ? BlendFunction.ADDITIVE : BlendFunction.TRANSLUCENT))
 				.build()));
+			LINEAR.put(e.getKey(), RenderPipelines.register(RenderPipeline.builder(RenderPipelines.MATRICES_FOG_SNIPPET, snippet)
+				.withLocation(RlCar.id("pipeline/fx_linear_" + key))
+				.withShaderDefine("FX_LINEAR")
+				.withColorTargetState(LinearFx.TARGET)
+				.build()));
 			RenderPipeline.Builder oit = RenderPipeline.builder(snippet)
 				.withBindGroupLayout(BindGroupLayouts.DYNAMIC_TRANSFORMS)
 				.withBindGroupLayout(BindGroupLayouts.FOG);
@@ -470,9 +481,13 @@ public final class RlFx {
 				// Spark_Mat and DodgeRibbon_Mat sample nothing; they still need a texture bound.
 				Path tex = m.texture != null ? m.texture : firstTexture();
 				RenderSetup.RenderSetupBuilder setup = RenderSetup.builder(pipeline).setOitPipelines(oit);
+				List<LinearFx.Tex> textures = new ArrayList<>();
 				if (tex != null) {
-					setup.withTexture("Sampler0", RlModels.texture(tex), () -> RenderSystem.getSamplerCache().getRepeat(FilterMode.LINEAR, true));
+					Supplier<GpuSampler> sampler = () -> RenderSystem.getSamplerCache().getRepeat(FilterMode.LINEAR, true);
+					setup.withTexture("Sampler0", RlModels.texture(tex), sampler);
+					textures.add(new LinearFx.Tex("Sampler0", RlModels.texture(tex), sampler));
 				}
+				TEXTURES.put(material, textures);
 				if (!m.additive) {
 					setup.sortOnUpload();
 				}
@@ -1338,17 +1353,19 @@ public final class RlFx {
 				}
 			}
 		}
+		boolean linear = LinearFx.active();
 		for (Map.Entry<String, Batch> e : batches.entrySet()) {
 			Batch b = e.getValue();
 			RenderType type = renderType(e.getKey());
-			if (type == null || b.quads.isEmpty()) {
+			List<LinearFx.Tex> textures = TEXTURES.get(e.getKey());
+			if (type == null || textures == null || b.quads.isEmpty()) {
 				continue;
 			}
 			// Back to front (the translucent materials need it; additive ones do not mind).
 			b.quads.sort((x, y) -> Float.compare(y[4], x[4]));
 			float[] v = b.v;
 			List<float[]> quads = b.quads;
-			collector.submitCustomGeometry(poseStack, type, (pose, buf) -> {
+			SubmitNodeCollector.CustomGeometryRenderer geometry = (pose, buf) -> {
 				for (float[] q : quads) {
 					for (int k = 0; k < 4; k++) {
 						int o = (int) q[k] * 11;
@@ -1360,7 +1377,12 @@ public final class RlFx {
 							.setNormal(pose, 0, 1, 0);
 					}
 				}
-			});
+			};
+			if (linear) {
+				LinearFx.submit(LINEAR.get(e.getKey()), textures, poseStack, geometry);
+			} else {
+				collector.submitCustomGeometry(poseStack, type, geometry);
+			}
 		}
 	}
 

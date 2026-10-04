@@ -315,8 +315,13 @@ fn layout_body(preset: HitboxPreset, children: &Children, q: &mut Query<(&mut Tr
     }
 }
 
+/// The game blends its particles in linear light into a float (HDR) scene colour and tonemaps the
+/// whole frame at the end. `Hdr` does the same here: without it the main texture is 8-bit sRGB, so
+/// every effect fragment is clamped to 1 before blending (the boost smoke's colour is 3.0 red) and
+/// only `StandardMaterial`s are tonemapped (in-shader), not the effects. The tonemapper is Bevy's
+/// default: the game's (`Tonemapper_Customizable`) curve is engine code, not in the packages.
 fn spawn_camera(mut commands: Commands) {
-    commands.spawn((Camera3d::default(), Projection::Perspective(PerspectiveProjection::default()), Transform::from_xyz(0.0, 3.0, -38.0).looking_at(Vec3::new(0.0, 0.5, -30.0), Vec3::Y)));
+    commands.spawn((Camera3d::default(), bevy::camera::Hdr, Projection::Perspective(PerspectiveProjection::default()), Transform::from_xyz(0.0, 3.0, -38.0).looking_at(Vec3::new(0.0, 0.5, -30.0), Vec3::Y)));
 }
 
 fn spawn_hud(mut commands: Commands) {

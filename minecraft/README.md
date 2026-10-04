@@ -102,6 +102,34 @@ and ports of the same code (`RlAudio`, `RlFx`):
 They need the extended car state of `rl_car_ffi`'s `rlcar_car_contacts` (velocity, wheel and body
 contacts, jump/flip flags), sent with every car pose so other players' cars play them too.
 
+**How the effects reach the screen.** The game adds and blends its particles in linear light into
+an HDR scene colour and converts to the display only at the end. Minecraft's main target holds
+8-bit sRGB values with fixed-function blending, so adding an effect there adds sRGB values (a faint
+0.4 glow over the sky adds about 0.66 instead of about 0.2) and the streaks, flames and trails clip
+to white. So the effects and the boost (flame cones and smoke) are drawn in their own pass after the
+level's main pass (`LinearFx`, a frame graph pass added by `LevelRendererMixin`): into an RGBA16F
+target as linear premultiplied light (additive: rgb, alpha 0; translucent: rgb x alpha, alpha),
+depth-tested against the main depth so blocks and cars hide them, then composited once as
+`srgb(linear(scene) * (1 - fx.alpha) + fx.rgb)` (`fx_composite.fsh`). This is the game's "add" and
+"over"; only the order between interleaved additive and translucent particles is not kept. Fog is
+applied as before (additive effects fade out, translucent ones go towards the fog colour, in linear
+light). It works the same with improved transparency (the pass runs after the OIT composite). Two
+known differences from the old way: HDR particle colours are no longer clamped per particle (the
+boost smoke's colour is (3.0, 0.625, 0.1)), so it reads more saturated, as in the game's float buffer;
+and translucent blocks write depth, so an effect behind water or glass is hidden instead of seen
+through it. With an Iris shader pack, or when the pass is not running (another mod replacing the
+level renderer, or an error), the effects are drawn as before, each converted to sRGB and blended
+into the main target. `-Prlcar.srgbFx` forces that to compare.
+
+The game also runs a post-process chain over the whole frame (`postprocess_fx.PP.Main01_PP` and
+`PostProcess.Standard_PP` in `Startup.upk`: an `UberPostProcessEffect` with
+`TonemapperType=Tonemapper_Customizable`, toe factor 0.5, bloom threshold 0.25, using the map's
+`WorldInfo` post-process settings, plus a `PP_Supersonic_01_MIC` material effect while supersonic;
+and `Bloom=True` in the PC `TASystemSettings.ini`). It is not reproduced: which chain a match uses
+is set by the cooked engine config, the bloom settings come from the arena maps, and the
+tonemapper curve is computed by engine code, none of which is in the extracted packages. It would also have to
+apply to the whole Minecraft frame, not only to the effects.
+
 #### The ball's material and markers
 
 The ball is drawn with a port of its own material, `MAT_Ball_V3` (`rl_ball.fsh`, same lighting as

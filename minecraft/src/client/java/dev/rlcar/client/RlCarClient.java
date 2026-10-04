@@ -17,6 +17,7 @@ public final class RlCarClient implements ClientModInitializer {
 		CarKeys.register();
 		PadBinds.load();
 		CameraSettings.load();
+		LinearFx.registerPipelines();
 		RlBoost.registerPipelines();
 		RlShading.registerPipelines();
 		RlFx.registerPipelines();
