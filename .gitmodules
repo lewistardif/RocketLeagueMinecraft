@@ -1,0 +1,4 @@
+[submodule "skyrim/extern/CommonLibSSE-NG"]
+	path = skyrim/extern/CommonLibSSE-NG
+	url = https://github.com/alandtse/CommonLibVR.git
+	branch = ng

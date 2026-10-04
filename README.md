@@ -19,11 +19,15 @@ the six hitbox presets, car-vs-world collision) as:
    through **RocketSim** (the open-source reference simulator) and through the core, then compares
    the two trajectories tick by tick.
 4. **`crates/rl_car_ffi`** + **`minecraft/`**: a C ABI over the core (for engines not written in
-   Rust), and a **Minecraft (Fabric 26.3)** mod that drives the same core through it. See
+   Rust), and a **Minecraft (Fabric 26.3)** mod that drives the same core through it, with the
+   ball, ball cam, and bumps and demolitions against cars and mobs. See
    [`minecraft/README.md`](minecraft/README.md).
 5. **`gta/`**: a **GTA V** (PC, story mode only) Script Hook V plugin that drives the same core
    through the C ABI, with the ball, Rocket League's camera and ball cam, controller support, and
    bumps and demolitions against GTA's cars and pedestrians. See [`gta/README.md`](gta/README.md).
+6. **`skyrim/`**: a **Skyrim Special Edition** (AE runtime) SKSE plugin that turns the Dragonborn into
+   the car, driving on Skyrim's collision copied out of Havok, with the ball, Rocket League's camera
+   and ball cam, and bumps and demolitions of Skyrim's NPCs. See [`skyrim/README.md`](skyrim/README.md).
 
 The core also simulates **the ball** (RocketSim's soccar ball, stepped together with the cars:
 `step_scene`), validated against RocketSim the same way as the car.
@@ -273,6 +277,7 @@ crates/rl_car_validate/   scenarios, comparison, report, regression test
 crates/rl_car_ffi/        C ABI over the core + BoxWorld (seamless collision from voxel boxes)
 minecraft/                Fabric mod: car entity, renderer, camera, networking, tests
 gta/                      GTA V Script Hook V plugin (C++), build script, unit tests
+skyrim/                   Skyrim SE/AE SKSE plugin (C++, CommonLibSSE-NG), build script, unit tests
 oracle/                   RocketSim oracle (C++), build script
 validation/               scenario files, RocketSim traces, REPORT.md
 CONSTANTS.md              every constant with its source
@@ -308,6 +313,15 @@ MIT for this repository's code. The physics model follows RocketSim (MIT) and Bu
 2. Run `gta\build.bat`. It builds everything and stages it in `gta\stage`.
 3. Copy the contents of `gta\stage` into your GTA V folder and start story mode.
 4. Press F9 to become the car. See [`gta/README.md`](gta/README.md).
+
+**Skyrim Special Edition (AE runtime 1.6/1.7)**
+
+1. Install Rust, Visual Studio 2022 or newer with the C++ tools, and git; in Skyrim, SKSE64 and the
+   Address Library for SKSE Plugins.
+2. Run `skyrim\build.bat`. It builds everything (CommonLibSSE-NG and its vcpkg dependencies the first
+   time) and stages it in `skyrim\stage` with the Mod Organizer layout.
+3. Install `skyrim\stage` as a mod and start Skyrim through SKSE.
+4. Press F7 to become the car. See [`skyrim/README.md`](skyrim/README.md).
 
 **Optional: real car models**
 

@@ -3,7 +3,7 @@
 use crate::callback_world::CallbackWorld;
 use crate::{BoxWorld, CAMERA_SETTINGS_FLOATS, CAMERA_VIEW_FLOATS, Car, camera_flags, controls, guard, read_v, settings_from};
 use rl_car_core::camera::{CameraInput, CameraTarget, CarCamera};
-use rl_car_core::{BallConfig, BallState, CollisionWorld, Controls, EmptyWorld, Scene, TICK_DT, Vec3, step_scene};
+use rl_car_core::{BallConfig, BallState, CollisionWorld, Controls, EmptyWorld, Scene, SimConfig, TICK_DT, Vec3, step_scene};
 
 pub const BALL_CONFIG_FLOATS: usize = 10;
 pub const BALL_POSE_FLOATS: usize = 9;
@@ -235,6 +235,52 @@ pub unsafe extern "C" fn rlcar_scene_step(
     step_scene_ticks(c, b, w, ticks, ctl);
 }
 
+/// Like [`rlcar_scene_step`], but adds `frame_dt` seconds to the car's clock and runs the ticks
+/// that fit (for hosts that simulate per rendered frame). Returns the number of ticks run; the car
+/// and the ball share [`crate::rlcar_car_alpha`].
+#[allow(clippy::too_many_arguments)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_scene_advance(
+    car: *mut Car,
+    ball: *mut Ball,
+    world: *const BoxWorld,
+    frame_dt: f64,
+    throttle: f32,
+    steer: f32,
+    pitch: f32,
+    yaw: f32,
+    roll: f32,
+    buttons: u32,
+) -> u32 {
+    let (Some(c), Some(b)) = (unsafe { car.as_mut() }, unsafe { ball.as_mut() }) else { return 0 };
+    let ctl = controls(throttle, steer, pitch, yaw, roll, buttons);
+    let n = guard(0, || c.stepper.consume(frame_dt));
+    let empty = BoxWorld::default();
+    let w = unsafe { world.as_ref() }.unwrap_or(&empty);
+    step_scene_ticks(c, b, w, n, ctl);
+    n
+}
+
+/// Runs the ball on its own (no car) for exactly `ticks` ticks against `world` (null = empty
+/// space), with the default gravity. A ball with zero velocity sleeps (no gravity, no world
+/// contacts) until something gives it a velocity, as in RocketSim.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_ball_step(ball: *mut Ball, world: *const BoxWorld, ticks: u32) {
+    let Some(b) = (unsafe { ball.as_mut() }) else { return };
+    let empty = BoxWorld::default();
+    let w = unsafe { world.as_ref() }.unwrap_or(&empty);
+    let cfg = SimConfig::default();
+    guard((), || {
+        for _ in 0..ticks {
+            b.previous = b.current;
+            let mut scene = Scene { cars: Vec::new(), ball: b.current, tick: b.tick };
+            step_scene(&mut scene, &[], w, &cfg, &b.config, TICK_DT);
+            b.current = scene.ball;
+            b.tick = scene.tick;
+        }
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rlcar_camera_update_ball(
@@ -298,6 +344,54 @@ mod tests {
             assert_eq!(rlcar_ball_pose(ball, 1.0, pose.as_mut_ptr()), 1);
             assert_eq!(touched, 1);
             assert!(pose[3] > 1000.0, "ball velocity {:?}", &pose[3..6]);
+            rlcar_world_free(world);
+            rlcar_ball_free(ball);
+            rlcar_car_free(car);
+        }
+    }
+
+    #[test]
+    fn ball_alone_falls_bounces_and_stays_above_the_floor() {
+        unsafe {
+            let ball = rlcar_ball_new();
+            let world = rlcar_world_new();
+            let floor = [-5000.0f32, -5000.0, -100.0, 5000.0, 5000.0, 0.0];
+            rlcar_world_set_boxes(world, floor.as_ptr(), 1);
+            // A ball with zero velocity sleeps (no gravity) until touched, as in RocketSim.
+            let (pos, nudge) = ([0.0f32, 0.0, 500.0], [0.0f32, 0.0, -1.0]);
+            rlcar_ball_reset(ball, pos.as_ptr(), nudge.as_ptr(), std::ptr::null());
+            let mut pose = [0.0f32; BALL_POSE_FLOATS];
+            let mut lowest = f32::MAX;
+            let mut bounced = false;
+            for _ in 0..600 {
+                rlcar_ball_step(ball, world, 1);
+                rlcar_ball_pose(ball, 1.0, pose.as_mut_ptr());
+                lowest = lowest.min(pose[2]);
+                bounced |= lowest < 100.0 && pose[5] > 100.0;
+            }
+            assert!(bounced, "never bounced");
+            assert!(lowest > 80.0, "sank into the floor: {lowest}");
+            assert!((pose[2] - 91.25).abs() < 5.0, "rests at {}", pose[2]);
+            rlcar_world_free(world);
+            rlcar_ball_free(ball);
+        }
+    }
+
+    #[test]
+    fn scene_advance_runs_the_ticks_that_fit() {
+        unsafe {
+            let car = rlcar_car_new(0);
+            let ball = rlcar_ball_new();
+            let world = rlcar_world_new();
+            let floor = [-5000.0f32, -5000.0, -100.0, 5000.0, 5000.0, 0.0];
+            rlcar_world_set_boxes(world, floor.as_ptr(), 1);
+            let (far, nudge) = ([3000.0f32, 0.0, 400.0], [0.0f32, 0.0, -1.0]);
+            rlcar_ball_reset(ball, far.as_ptr(), nudge.as_ptr(), std::ptr::null());
+            assert_eq!(rlcar_scene_advance(car, ball, world, 0.051, 0.0, 0.0, 0.0, 0.0, 0.0, 0), 6);
+            let mut pose = [0.0f32; BALL_POSE_FLOATS];
+            rlcar_ball_pose(ball, 1.0, pose.as_mut_ptr());
+            assert!(pose[2] < 400.0 && pose[5] < 0.0, "ball did not fall: {pose:?}");
+            assert_eq!(rlcar_scene_advance(car, std::ptr::null_mut(), world, 0.051, 0.0, 0.0, 0.0, 0.0, 0.0, 0), 0);
             rlcar_world_free(world);
             rlcar_ball_free(ball);
             rlcar_car_free(car);

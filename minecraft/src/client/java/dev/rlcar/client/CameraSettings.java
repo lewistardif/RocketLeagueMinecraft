@@ -29,8 +29,8 @@ public final class CameraSettings {
 		HEIGHT("height", 1, 40, 200, 10),
 		ANGLE("angle", 2, -15, 0, 1),
 		STIFFNESS("stiffness", 4, 0, 1, 0.05F),
-		SWIVEL_SPEED("swivel_speed", 5, 1, 10, 0.1F);
-		// Transition Speed (index 6) only paces blends to and from ball cam, which there is none of.
+		SWIVEL_SPEED("swivel_speed", 5, 1, 10, 0.1F),
+		TRANSITION_SPEED("transition_speed", 6, 1, 2, 0.1F);
 
 		public final String id;
 		/** Index in the native settings array. */
