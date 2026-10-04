@@ -7,6 +7,7 @@ import dev.rlcar.physics.CarPose;
 import dev.rlcar.physics.RlCarNative;
 import dev.rlcar.physics.Space;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -66,6 +67,12 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 			state.simpleFlame = false;
 			state.smokeCount = 0;
 		}
+	}
+
+	@Override
+	public boolean shouldRender(CarEntity car, Frustum frustum, double camX, double camY, double camZ, float partialTicks) {
+		// Demolished: gone until it respawns.
+		return !car.demolished() && super.shouldRender(car, frustum, camX, camY, camZ, partialTicks);
 	}
 
 	@Override
@@ -132,7 +139,7 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		super.submit(state, poseStack, collector, camera);
 	}
 
-	private static void submitModel(SubmitNodeCollector collector, PoseStack poseStack, RlModels.Model model, int light) {
+	static void submitModel(SubmitNodeCollector collector, PoseStack poseStack, RlModels.Model model, int light) {
 		for (RlModels.Part part : model.parts()) {
 			collector.submitCustomGeometry(poseStack, RenderTypes.entityCutout(part.texture()), (p, b) -> {
 				float[] pos = part.positions();

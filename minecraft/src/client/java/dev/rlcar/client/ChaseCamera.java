@@ -2,6 +2,7 @@ package dev.rlcar.client;
 
 import dev.rlcar.physics.CarPose;
 import dev.rlcar.physics.CarSim;
+import dev.rlcar.physics.NativeBall;
 import dev.rlcar.physics.RlCarNative;
 import dev.rlcar.physics.Space;
 import net.minecraft.client.Minecraft;
@@ -17,8 +18,9 @@ import org.jspecify.annotations.Nullable;
 /**
  * Rocket League's car camera while driving in third person (the Rust core's
  * {@code rl_car_core::camera}, with the player's {@link CameraSettings}): the right stick swivels
- * it, Rear Camera looks behind (held, or switched with Rear Camera Toggle), and in the air it keeps looking where the car is going however the
- * car flips. Unlike Rocket League's see-through arena walls, blocks pull it in. In first person it
+ * it, Rear Camera looks behind (held, or switched with Rear Camera Toggle), Ball Cam keeps the
+ * nearest ball in view, and in the air it keeps looking where the car is going however the car
+ * flips. Unlike Rocket League's see-through arena walls, blocks pull it in. In first person it
  * becomes a hood camera.
  */
 public final class ChaseCamera {
@@ -41,13 +43,15 @@ public final class ChaseCamera {
 	}
 
 	/** Third-person chase view for this frame, advancing the camera by the frame time. */
-	public static @Nullable View chase(Minecraft mc, CarSim sim) {
+	public static @Nullable View chase(Minecraft mc, CarSim sim, float partialTicks) {
 		if (!activeLastFrame) {
 			sim.resetCamera(); // back from the hood camera or another view: no swing from the old pose
 		}
 		activeThisFrame = true;
 		CarKeys.CameraInput in = CarKeys.readCamera(mc.gui.screen() == null);
-		if (!sim.camera(ClientDriving.frameSeconds(), CameraSettings.values(), in.lookRight(), in.lookUp(), in.rearView() ? RlCarNative.CAMERA_REAR_VIEW : 0, VIEW)) {
+		NativeBall ball = in.ballCam() ? ClientDriving.ballCamTarget(mc, partialTicks) : null;
+		int flags = (in.rearView() ? RlCarNative.CAMERA_REAR_VIEW : 0) | (ball != null ? RlCarNative.CAMERA_BALL_CAM : 0);
+		if (!sim.camera(ClientDriving.frameSeconds(), CameraSettings.values(), in.lookRight(), in.lookUp(), flags, ball, VIEW)) {
 			return null;
 		}
 		Vec3 focus = Space.toMc(sim.origin(), VIEW[14], VIEW[15], VIEW[16]);

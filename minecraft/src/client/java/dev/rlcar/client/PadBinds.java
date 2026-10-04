@@ -91,8 +91,9 @@ public final class PadBinds {
 		JUMP("jump", Input.A),
 		BOOST("boost", Input.B),
 		POWERSLIDE("powerslide", Input.X),
+		BALL_CAM("ball_cam", Input.Y),
 		REAR_CAMERA("rear_camera", Input.RS),
-		RESET("reset", Input.Y),
+		RESET("reset", Input.DPAD_UP),
 		EXIT("exit", Input.BACK);
 
 		public final String id;

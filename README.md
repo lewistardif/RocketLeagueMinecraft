@@ -19,7 +19,8 @@ the six hitbox presets, car-vs-world collision) as:
    through **RocketSim** (the open-source reference simulator) and through the core, then compares
    the two trajectories tick by tick.
 4. **`crates/rl_car_ffi`** + **`minecraft/`**: a C ABI over the core (for engines not written in
-   Rust), and a **Minecraft (Fabric 26.3)** mod that drives the same core through it. See
+   Rust), and a **Minecraft (Fabric 26.3)** mod that drives the same core through it, with the
+   ball, ball cam, and bumps and demolitions against cars and mobs. See
    [`minecraft/README.md`](minecraft/README.md).
 5. **`gta/`**: a **GTA V** (PC, story mode only) Script Hook V plugin that drives the same core
    through the C ABI, with the ball, Rocket League's camera and ball cam, controller support, and

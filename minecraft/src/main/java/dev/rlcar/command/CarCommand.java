@@ -5,7 +5,10 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.rlcar.RlCar;
+import dev.rlcar.entity.BallEntity;
 import dev.rlcar.entity.CarEntity;
+import dev.rlcar.physics.BallPose;
+import dev.rlcar.physics.BallSim;
 import dev.rlcar.physics.CarControls;
 import dev.rlcar.physics.CarPose;
 import dev.rlcar.physics.CarSim;
@@ -24,7 +27,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * {@code /rlcar spawn [preset] [blue|orange]} and {@code /rlcar selftest}.
+ * {@code /rlcar spawn [preset] [blue|orange]}, {@code /rlcar ball} and {@code /rlcar selftest}.
  *
  * <p>The self-test drives a car through the real Minecraft collision path (block snapshot ->
  * Rust box world -> core) on a small test track and checks the results, so the whole server
@@ -45,6 +48,7 @@ public final class CarCommand {
 					.then(Commands.argument("color", StringArgumentType.word())
 						.suggests((c, b) -> SharedSuggestionProvider.suggest(new String[] {"blue", "orange"}, b))
 						.executes(c -> spawn(c, StringArgumentType.getString(c, "preset"), StringArgumentType.getString(c, "color"))))))
+			.then(Commands.literal("ball").executes(CarCommand::spawnBall))
 			.then(Commands.literal("selftest").executes(CarCommand::selftest)));
 	}
 
@@ -61,6 +65,15 @@ public final class CarCommand {
 		CarEntity car = CarEntity.create(src.getLevel(), pos, src.getRotation().y, preset, color);
 		src.getLevel().addFreshEntity(car);
 		src.sendSuccess(() -> Component.literal("Spawned " + RlCarNative.PRESETS[preset]), true);
+		return 1;
+	}
+
+	private static int spawnBall(CommandContext<CommandSourceStack> c) {
+		CommandSourceStack src = c.getSource();
+		Vec3 look = Vec3.directionFromRotation(0, src.getRotation().y);
+		Vec3 center = src.getPosition().add(look.scale(4)).add(0, BallEntity.RADIUS + 0.5, 0);
+		src.getLevel().addFreshEntity(BallEntity.create(src.getLevel(), center));
+		src.sendSuccess(() -> Component.literal("Spawned a ball"), true);
 		return 1;
 	}
 
@@ -129,6 +142,7 @@ public final class CarCommand {
 					check(failures, other.position().distanceTo(sim.position()) < 1.0E-6, "loaded state matches");
 				}
 			}
+			ballChecks(level, base, floorY, failures);
 		} catch (Throwable t) {
 			RlCar.LOG.error("rlcar selftest crashed", t);
 			failures.add("crashed: " + t);
@@ -141,6 +155,69 @@ public final class CarCommand {
 			src.sendFailure(Component.literal(result));
 		}
 		return failures.isEmpty() ? 1 : 0;
+	}
+
+	/**
+	 * The ball on the same track: it drops, bounces and rests on the block floor; it sleeps and wakes
+	 * when the block under it goes; a car boosting into it, stepped in one solve with it, sends it
+	 * flying down the track.
+	 */
+	private static void ballChecks(ServerLevel level, BlockPos base, double floorY, List<String> failures) {
+		try (BallSim ball = new BallSim(base)) {
+			// 6. Dropped from 3 blocks: bounces, then rests on the floor at its radius.
+			Vec3 drop = Vec3.atBottomCenterOf(base.above()).add(2, 3, 0);
+			ball.resetAt(drop, Vec3.ZERO);
+			double lowest = Double.MAX_VALUE;
+			double rebound = 0;
+			for (int t = 0; t < 1200; t++) {
+				ball.step(level, 1);
+				double y = ball.position().y - floorY;
+				lowest = Math.min(lowest, y);
+				if (lowest < BallEntity.RADIUS + 0.05) {
+					rebound = Math.max(rebound, y - BallEntity.RADIUS);
+				}
+			}
+			BallPose p = ball.pose(1, new BallPose());
+			check(failures, rebound > 0.3, "ball bounced " + rebound + " blocks off the floor");
+			check(failures, lowest > BallEntity.RADIUS - 0.1, "ball never sank into the floor (lowest centre " + lowest + ")");
+			check(failures, Math.abs(p.y - floorY - BallEntity.RADIUS) < 0.05, "ball rests at its radius (centre " + (p.y - floorY) + ", want " + BallEntity.RADIUS + ")");
+
+			// 7. Asleep, it stays put until the blocks under it go; then it falls through the hole
+			// (3 x 3: the ball is 1.8 blocks wide).
+			ball.sleep();
+			check(failures, ball.asleep(), "ball sleeps");
+			int hash = ball.geometryHash(level);
+			BlockPos under = BlockPos.containing(p.x, floorY - 0.5, p.z);
+			for (BlockPos q : BlockPos.betweenClosed(under.offset(-1, 0, -1), under.offset(1, 0, 1))) {
+				level.setBlockAndUpdate(q, Blocks.AIR.defaultBlockState());
+			}
+			check(failures, ball.geometryHash(level) != hash, "removing the blocks under the ball changes its geometry");
+			ball.wake();
+			ball.step(level, 60);
+			check(failures, ball.position().y < floorY + 0.3, "woken ball drops into the hole (centre " + (ball.position().y - floorY) + ")");
+			for (BlockPos q : BlockPos.betweenClosed(under.offset(-1, 0, -1), under.offset(1, 0, 1))) {
+				level.setBlockAndUpdate(q, Blocks.STONE.defaultBlockState());
+			}
+		}
+
+		// 8. A car boosting into a resting ball, stepped together with it.
+		try (CarSim car = new CarSim(0, base); BallSim ball = new BallSim(base)) {
+			car.resetAt(Vec3.atBottomCenterOf(base.above()).add(0, 0.2, 0), -90.0F);
+			car.step(level, 120, CarControls.IDLE);
+			ball.resetAt(Vec3.atBottomCenterOf(base.above()).add(10, BallEntity.RADIUS + 0.1, 0), Vec3.ZERO);
+			ball.step(level, 120);
+			boolean touched = false;
+			double ballX = ball.position().x;
+			double farthest = ballX;
+			for (int t = 0; t < 240; t++) {
+				car.step(level, 1, new CarControls(1, 0, 0, 0, 0, RlCarNative.BUTTON_BOOST), ball);
+				touched |= car.car.consumeBallTouch();
+				farthest = Math.max(farthest, ball.position().x);
+			}
+			check(failures, touched, "car touched the ball");
+			check(failures, farthest - ballX > 8, "hit ball flew " + (farthest - ballX) + " blocks down the track (want > 8)");
+			check(failures, ball.position().y > floorY, "hit ball stays above the floor");
+		}
 	}
 
 	/** A 40 x 5 stone strip at {@code base}, with a 3-block wall 30 blocks east, cleared above. */

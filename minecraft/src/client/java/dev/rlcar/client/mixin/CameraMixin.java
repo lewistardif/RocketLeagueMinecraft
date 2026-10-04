@@ -73,7 +73,7 @@ public abstract class CameraMixin {
 		if (type == CameraType.FIRST_PERSON) {
 			view = ChaseCamera.hood(pose);
 		} else if (type == CameraType.THIRD_PERSON_BACK) {
-			view = ChaseCamera.chase(mc, sim);
+			view = ChaseCamera.chase(mc, sim, partialTicks);
 		} else {
 			return;
 		}

@@ -3,6 +3,7 @@
 /oracle/RocketSim
 *.exe
 *.pdb
+__pycache__/
 /validation/*.core.csv
 
 # Extracted Rocket League assets (tools/rl_assets/extract.py): local use only, never commit.

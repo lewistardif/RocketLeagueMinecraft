@@ -29,7 +29,7 @@ import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The real Rocket League car models (7 bodies + the wheel), extracted from the player's own game
+ * The real Rocket League models (7 car bodies, the wheel and the ball), extracted from the player's own game
  * install by {@code tools/rl_assets/extract.py}. They are read at runtime from a local folder and
  * never shipped with the mod:
  *
@@ -87,6 +87,11 @@ public final class RlModels {
 
 	public static @Nullable Model wheel() {
 		return model("wheel/wheel.gltf");
+	}
+
+	/** The ball, centred on its origin (blocks), or null without it. */
+	public static @Nullable Model ball() {
+		return model("ball/ball.gltf");
 	}
 
 	/** A model of the extracted boost ({@code boost/<file>}), e.g. a car's flame cones. */
