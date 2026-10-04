@@ -138,6 +138,16 @@ It also extracts the default boost ("Standard"), shown on those cars exactly as 
 - Not reproduced: the boost's lens flare and the glow it puts on the car body (both are drawn by
   engine code that is not in the packages), and the sound.
 
+**Sounds and effects** (also from your own install): `extract.py --wwiser <wwiser.pyz> --vgmstream <vgmstream-cli.exe>`
+extracts the car's Wwise sounds (engine/exhaust, boost loop and tail, jump, double jump, dodge, in-air
+whoosh, landings, tyres, body impacts and slide, supersonic enter + loop, empty-boost) and plays them
+through a small Wwise-graph player (`src/audio.rs`) driven by the RTPCs the game's native code sets
+(`Speed`, `RPM`, `Throttle_Input`, `WheelForwardSpeed`...). The engine RPM model is the one
+reconstructed part (the game computes it natively from the engine profile). The FX step extracts the
+supersonic speed streaks and wheel trails, jump/dodge smoke and ribbons, impact sparks, camera
+shakes and rumble; their materials are ports of the game's compiled shaders (found with
+`tools/rl_assets/shader_cache.py`). `--audio-log` logs sound events/levels, `--slowmo 0.1` slows the clock.
+
 The placeholder box car (and a real car when the boost was not extracted) gets a simple flickering
 flame cone instead.
 

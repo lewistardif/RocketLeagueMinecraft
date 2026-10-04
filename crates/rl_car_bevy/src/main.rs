@@ -10,9 +10,11 @@
 #![allow(clippy::type_complexity, clippy::too_many_arguments)] // Bevy system parameter lists.
 
 mod arena;
+mod audio;
 mod boost;
 mod collision;
 mod convert;
+mod fx;
 mod input;
 mod visuals;
 #[cfg(test)]
@@ -41,15 +43,26 @@ fn main() {
         )
         .add_plugins(PhysicsPlugins::default())
         .add_plugins(boost::BoostPlugin)
+        .add_plugins(audio::CarAudioPlugin)
+        .add_plugins(fx::FxPlugin)
         .insert_resource(ClearColor(Color::srgb(0.55, 0.68, 0.85)))
         .insert_resource(Sim::new(HitboxPreset::Octane))
         .insert_resource(CameraRig::default())
         .insert_resource(CarVisuals::detect())
         .insert_resource(autopilot)
         .insert_resource(Showcase::from_args())
-        .add_systems(Startup, (arena::spawn_arena, spawn_car, spawn_camera, spawn_hud))
-        .add_systems(Update, (hotkeys, simulate, sync_car, boost::sync_cones, sync_wheels, follow_camera, boost::update, update_hud, autopilot_shots, showcase, visuals::generate_mipmaps).chain())
+        .add_systems(Startup, (arena::spawn_arena, spawn_car, spawn_camera, spawn_hud, slow_motion))
+        .add_systems(Update, (hotkeys, simulate, sync_car, boost::sync_cones, sync_wheels, follow_camera, boost::update, fx::update, fx::draw, audio::drive, audio::update_voices, update_hud, autopilot_shots, showcase, visuals::generate_mipmaps).chain())
         .run();
+}
+
+/// `--slowmo <factor>`: run the game clock (physics, effects, sounds' parameters) at `factor` x real
+/// time, to look at short-lived effects.
+fn slow_motion(mut time: ResMut<Time<Virtual>>) {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(f) = args.iter().position(|a| a == "--slowmo").and_then(|i| args.get(i + 1)).and_then(|v| v.parse::<f32>().ok()) {
+        time.set_relative_speed(f.clamp(0.01, 10.0));
+    }
 }
 
 // ------------------------------------------------------------------------------------ autopilot
@@ -190,11 +203,14 @@ struct Sim {
     infinite_boost: bool,
     /// Bumped on every teleport, so the camera starts over instead of swinging across the map.
     respawns: u32,
+    /// The state after each physics tick of the last frame, oldest first (the sounds and effects
+    /// react to every tick, not only to the last one).
+    ticks: Vec<CarState>,
 }
 
 impl Sim {
     fn new(preset: HitboxPreset) -> Sim {
-        Sim { stepper: FixedStepper::new(spawn_state(preset)), preset, maneuver: None, last_input: Controls::default(), frames: 0, ticks_last_frame: 0, infinite_boost: true, respawns: 0 }
+        Sim { stepper: FixedStepper::new(spawn_state(preset)), preset, maneuver: None, last_input: Controls::default(), frames: 0, ticks_last_frame: 0, infinite_boost: true, respawns: 0, ticks: Vec::new() }
     }
 
     fn respawn(&mut self, state: CarState) {
@@ -357,9 +373,11 @@ fn simulate(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&G
     if sim.infinite_boost {
         sim.stepper.current.boost_amount = 100.0;
     }
-    let Sim { stepper, maneuver, .. } = &mut *sim;
+    let Sim { stepper, maneuver, ticks: states, .. } = &mut *sim;
+    states.clear();
     let mut tick = stepper.tick_count;
     let ticks = stepper.advance_with(time.delta_secs_f64(), &world, |state| {
+        states.push(*state);
         tick += 1;
         if scripted {
             return Autopilot::controls(tick as f32 * rl_car_core::TICK_DT);
@@ -373,6 +391,11 @@ fn simulate(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, gamepads: Query<&G
         input
     });
     sim.ticks_last_frame = ticks;
+    // The closure saw the state before each tick; add the state after the last one.
+    let last = sim.stepper.current;
+    if ticks > 0 {
+        sim.ticks.push(last);
+    }
 
     // Fell out of the world (e.g. tunnelled through geometry at a seam): respawn.
     if sim.stepper.current.position.z < -500.0 {
@@ -486,6 +509,7 @@ fn follow_camera(
     mut rig: ResMut<CameraRig>,
     sim: Res<Sim>,
     showcase: Res<Showcase>,
+    mut shakes: ResMut<fx::CameraShakes>,
 ) {
     let (Ok(car), Ok((mut cam, mut projection))) = (car.single(), cam.single_mut()) else { return };
     if showcase.dir.is_some() {
@@ -507,12 +531,17 @@ fn follow_camera(
     let view = rig.camera.update(&target, &input, &settings, time.delta_secs());
 
     let mut location = view.location;
+    let o = view.orientation;
+    // The game's camera shakes (jump, dodge, landing, impacts), in the camera's frame.
+    let (shake_loc, shake_rot) = shakes.advance(time.delta_secs());
+    location = location + o.forward() * shake_loc.x + o.right() * shake_loc.y + o.up() * shake_loc.z;
     // Camera_TA.ClipToField: never below 10 uu above the field floor.
     location.z = location.z.max(10.0);
-    let o = view.orientation;
     // Bevy cameras look down local -Z with +Y up and +X right.
     let basis = Mat3::from_cols(dir_to_bevy(o.right()), dir_to_bevy(o.up()), -dir_to_bevy(o.forward()));
-    *cam = Transform::from_translation(pos_to_bevy(location)).with_rotation(Quat::from_mat3(&basis).normalize());
+    // Unreal pitch up / yaw right / roll right, about the camera's right / up / forward axes.
+    let shake = Quat::from_rotation_x(shake_rot.x) * Quat::from_rotation_y(-shake_rot.y) * Quat::from_rotation_z(-shake_rot.z);
+    *cam = Transform::from_translation(pos_to_bevy(location)).with_rotation(Quat::from_mat3(&basis).normalize() * shake);
     if let Projection::Perspective(p) = &mut *projection {
         p.fov = view.vertical_fov();
     }
