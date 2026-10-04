@@ -10,7 +10,11 @@ Pipeline
   3. rebuild each material for Bevy's PBR (bake the team paint, swizzle normal maps, light masks to
      emissive) and write one glTF per car and team, plus the default wheel;
   4. read the default boost (flame cones, smoke trail) straight from the cooked objects (`boost.py`,
-     `ue3.py`) into `boost/`.
+     `ue3.py`) into `boost/`;
+  5. write the unbaked textures and parameter values that the Minecraft mod's ports of the game's
+     car material shaders use (`shading.py`): `materials.json` per car and the wheel, `shading/`.
+
+Objects already exported to the work folder are not exported again.
 
 Requirements: Python 3.9+ with numpy and Pillow, the .NET SDK (8+), UModel
 (https://www.gildor.org/en/projects/umodel) and RL-UPKSuite (https://github.com/Martinii89/RL-UPKSuite).
@@ -34,6 +38,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from boost import PACKAGES as BOOST_PACKAGES, Boost  # noqa: E402
+from shading import ShadingWriter  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_GAME = Path(r"C:\Program Files\Epic Games\rocketleague")
@@ -106,6 +111,8 @@ def link_texture_caches(cooked: Path, out: Path) -> None:
 
 
 def umodel_export(umodel: Path, pkgs: Path, out: Path, package: str, obj: str, groups: bool = False) -> None:
+    if not groups and (out / package).exists() and any((out / package).rglob(f"{obj}.*")):
+        return  # exported by an earlier run
     r = run([str(umodel), "-game=rocketleague", "-export", "-gltf", "-png", *(["-groups"] if groups else []), f"-out={out}", f"-path={pkgs}", package, obj])
     log = r.stdout + r.stderr
     if r.returncode != 0 or "*** ERROR" in log:
@@ -166,12 +173,16 @@ class Textures:
     def __init__(self, export: Path, package: str):
         self.dirs = [export / package, export]
 
-    def load(self, name: str) -> np.ndarray | None:
+    def path(self, name: str) -> Path | None:
         for d in self.dirs:
             hits = sorted(d.rglob(f"Texture2D/{name}.png"))
             if hits:
-                return np.asarray(Image.open(hits[0]).convert("RGBA")).astype(np.float32) / 255.0
+                return hits[0]
         return None
+
+    def load(self, name: str) -> np.ndarray | None:
+        p = self.path(name)
+        return None if p is None else np.asarray(Image.open(p).convert("RGBA")).astype(np.float32) / 255.0
 
 
 def fix_normal(n: np.ndarray) -> np.ndarray:
@@ -395,6 +406,9 @@ def main() -> None:
             mats = [baker.bake(n, material_props(export, package, n), color, team) for n in mat_names]
             write_gltf(src, car_dir, f"body_{team}.gltf", mats, list(baker.images))
         write_wheel_anchors(src, car_dir / "wheels.txt")
+        ShadingWriter(export, args.out, Textures(export, package).path).write(mat_names, car_dir, TEAMS)
+
+    ShadingWriter(export, args.out, Textures(export, "Startup").path).write_shared()
 
     package, mesh, mat = WHEEL
     print(f"wheel: {package}.{mesh}")
@@ -406,6 +420,7 @@ def main() -> None:
     baker = MaterialBaker(wheel_dir, Textures(export, package))
     mats = [baker.bake(m["name"], material_props(export, package, m["name"]), TEAMS["blue"], "blue") for m in json.loads(src.read_text())["materials"]]
     write_gltf(src, wheel_dir, "wheel.gltf", mats, baker.images)
+    ShadingWriter(export, args.out, Textures(export, package).path).write([m["name"] for m in json.loads(src.read_text())["materials"]], wheel_dir)
 
     package, mesh, diffuse, masks = BALL
     print(f"ball: {package}.{mesh}")

@@ -242,6 +242,20 @@ public class CarClientGameTest implements FabricClientGameTest {
 			sp.getServer().runCommand("tp @p " + (start.getX() - 3.5) + " " + (start.getY() + 1.5) + " " + (start.getZ() + 0.5) + " -90 20");
 			ctx.waitTicks(60);
 			shot(ctx, "7-showroom");
+
+			// The car materials in different light: close up at noon, then the line-up at sunset and at night.
+			ctx.runOnClient(mc -> mc.gui.hud.toggle());
+			sp.getServer().runCommand("tp @p " + (start.getX() + 2.3) + " " + (start.getY() + 0.9) + " " + (start.getZ() - 3.4) + " -125 20");
+			ctx.waitTicks(20);
+			shot(ctx, "7b-closeup");
+			sp.getServer().runCommand("tp @p " + (start.getX() - 3.5) + " " + (start.getY() + 1.5) + " " + (start.getZ() + 0.5) + " -90 20");
+			sp.getServer().runCommand("time set 12600");
+			ctx.waitTicks(20);
+			shot(ctx, "7c-sunset");
+			sp.getServer().runCommand("time set 18000");
+			ctx.waitTicks(20);
+			shot(ctx, "7d-night");
+			ctx.runOnClient(mc -> mc.gui.hud.toggle());
 		}
 	}
 

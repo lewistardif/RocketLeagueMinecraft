@@ -151,10 +151,12 @@ and [RL-UPKSuite](https://github.com/Martinii89/RL-UPKSuite) (its decryptor, wra
 unless `--game` says otherwise. The work folder (`target/rl_assets_work`) hard-links the game's
 `Textures*.tfc` caches, so it must be on the same drive as the game.
 
-What you get is the game's geometry and texture maps. The game's material shaders, lighting and post-
-processing are not portable, so the extractor rebuilds each material for Bevy's PBR: team paint baked
-from the body's paint masks, clear coat, normal maps, headlight/tail-light masks as emissive. Expect it
-to look close to the game, not identical. The team colours are approximations (the game picks them from
+What you get is the game's geometry and texture maps. For the Bevy demo the extractor rebuilds each
+material for Bevy's PBR: team paint baked from the body's paint masks, clear coat, normal maps,
+headlight/tail-light masks as emissive. Expect it to look close to the game, not identical. The
+Minecraft mod goes further: it draws the cars with the game's own body, chassis and wheel material
+shaders, decompiled from the game's shader cache and translated to GLSL. The extractor writes their
+unbaked inputs (`materials.json` per car, `shading/`); see [`minecraft/README.md`](minecraft/README.md#car-materials). The team colours are approximations (the game picks them from
 a palette texture that is not extracted).
 
 Read Epic's EULA before doing this: it does not allow extracting the game's assets, and owning the game

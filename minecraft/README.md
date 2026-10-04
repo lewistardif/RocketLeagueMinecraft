@@ -34,8 +34,39 @@ The models are not part of this repository or the jar. Extract them from your ow
 `tools/rl_assets/extract.py` (see the root README), which writes `assets/rl/`. `runClient` and
 `runClientGameTest` read that folder directly. For a normal Minecraft install, copy `assets/rl`
 to `<.minecraft>/rlcar-assets`, or start the game with `-Drlcar.assets=<path to assets/rl>`.
-The ball is read from the same folder (`ball/`). Only the base colour textures are used (no normal
-maps or emissive lights). They get a full mip chain so they don't shimmer at a distance.
+The ball is read from the same folder (`ball/`). Textures get a full mip chain so they don't
+shimmer at a distance.
+
+#### Car materials
+
+The cars and the wheels are drawn with Rocket League's own material shaders, decompiled from the
+game's shader cache (`RefShaderCache-PC-D3D-SM5.upk`, the base pass pixel shaders of
+`Body_Paintable_Mat`, `MasterChassis_MAT` and `Wheel_Master_Mat`) and translated instruction by
+instruction to GLSL (`src/client/resources/assets/rlcar/shaders/core/rl_body.fsh`,
+`rl_chassis.fsh`, `rl_wheel.fsh`):
+
+- **Paint**: team, accent and paint colours mixed by the body's own skin and curvature masks, lit
+  through the game's lighting ramp atlas (`LightFalloffArray`, one row per paint finish). That ramp
+  gives Rocket League's soft wrap-around shading and tight clear-coat highlights. Reflections come
+  from the environment and the game's `ENVPack` texture, and chrome parts reflect fully.
+- **Windows and trims**: the curvature pack's green channel marks them. They are drawn dark in the
+  trim colour with the game's Fresnel rim, so the glass brightens at grazing angles. The shader's
+  tertiary (carbon) layer is masked by the body mask's alpha; none of the seven default bodies has
+  one, so it stays off, as in the game.
+- **Chassis**: head and tail lights glow in their colours and get brighter with distance, as in
+  the game. Metal parts reflect through the same ramp.
+- **Wheels**: brushed-metal rims with a swirling reflection and a sharp highlight, and rubber tyres.
+
+The game's lights are replaced by Minecraft's: the sun (or the moon at night) is the key light,
+dimmed by rain and by the sky light at the car (no sun in a cave). The lightmap gives the ambient
+light, so torches and night darken and tint the car. The sky and fog colours, with the sun in
+them, are what the paint reflects. The result is tone mapped like the game's HDR output.
+
+`tools/rl_assets/extract.py` writes these shaders' inputs next to the models: `materials.json` per
+car (the material instances' textures and parameter values, resolved through their parents) and
+the shared textures in `shading/`. The parameters are compiled into the shaders when the game
+starts, so a re-extracted car needs a restart. An older extraction without `materials.json` still
+works and shows the plain textured models.
 
 The same folder holds the default boost (`boost/`): with it, the real cars get the game's flame cones
 and smoke trail, as in the Bevy demo (shaders in `src/client/resources/assets/rlcar/shaders/core/`).
