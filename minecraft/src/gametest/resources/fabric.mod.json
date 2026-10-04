@@ -5,7 +5,7 @@
   "name": "RL Car end-to-end test",
   "environment": "*",
   "entrypoints": {
-    "fabric-client-gametest": ["dev.rlcar.test.CarClientGameTest", "dev.rlcar.test.LookdevClientGameTest"]
+    "fabric-client-gametest": ["dev.rlcar.test.CarClientGameTest", "dev.rlcar.test.LookdevClientGameTest", "dev.rlcar.test.PerfClientGameTest"]
   },
   "depends": { "rlcar": "*" }
 }

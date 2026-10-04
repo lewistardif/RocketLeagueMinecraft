@@ -307,9 +307,14 @@ public final class BallMarker {
 		RenderType sphere = type(SPHERE);
 		if (sphere != null) {
 			collector.submitCustomGeometry(poseStack, sphere, (pose, buf) -> {
+				// The pose put through each vertex once, without VertexConsumer's per-vertex vectors.
 				float[] m = SPHERE_MESH;
+				Vector3f at = new Vector3f();
+				Vector3f n = new Vector3f();
 				for (int i = 0; i < m.length; i += 6) {
-					vertex(buf, pose, m[i], m[i + 1], m[i + 2], 0, 0, 0xFF000000, m[i + 3], m[i + 4], m[i + 5]);
+					pose.pose().transformPosition(m[i], m[i + 1], m[i + 2], at);
+					pose.transformNormal(m[i + 3], m[i + 4], m[i + 5], n);
+					buf.addVertex(at.x, at.y, at.z).setColor(0xFF000000).setUv(0, 0).setOverlay(OverlayTexture.NO_OVERLAY).setLight(0).setNormal(n.x, n.y, n.z);
 				}
 			});
 		}
