@@ -69,6 +69,50 @@ subject to the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 ```
 
+## SkyCraft — https://github.com/chasmlol/SkyCraft (MIT)
+
+The Skyrim port (`skyrim/`) takes its Skyrim-side plumbing from SkyCraft's SKSE plugin: walking the
+loaded Havok world for its triangles and transforms with fault-guarded shape reads
+(`skyrim/src/havok_world.cpp`, from `Collision.cpp`), the player puppet, the `PlayerCamera::Update`
+call-site hook and first-person translation hook (`puppet.cpp`, `camera.cpp`, from `Game.cpp`), the
+input hooks (`input.cpp`, from `Input.cpp`), the convex-hull clipping (`sky_world.cpp`) and the CMake
+setup. Those parts were adapted, not copied verbatim.
+
+```
+MIT License
+
+Copyright (c) 2026 chasmlol
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## CommonLibSSE-NG — https://github.com/alandtse/CommonLibVR/tree/ng (GPL-3.0-or-later with exceptions)
+
+`skyrim/extern/CommonLibSSE-NG` is a git submodule pinned to release 10.0.0 (`d61bca4`), the commit
+SkyCraft builds with. It is not part of this repository's sources and keeps its own license
+(`COPYING.txt`, `EXCEPTIONS.md`). Since 10.0.0 it is GPL-3.0-or-later with a Modding Exception and a
+GPL-3.0 Linking Exception; earlier releases were MIT. `RLCar.dll` links it statically, so **a built
+`RLCar.dll` is a combined work distributed under GPL-3.0-or-later**; this repository's own code
+stays MIT (which is GPL-compatible), and its source is the corresponding source together with the
+submodule. Its vcpkg dependencies (spdlog, {fmt}, DirectXTK, DirectXMath, xbyak, SimpleIni,
+nlohmann-json, toml11, rapidcsv) are MIT or BSD-licensed and are fetched at build time.
+
 ## Not used
 
 - **RLUtilities** (GPL-3.0): consulted only to check its license; **no code or code structure was

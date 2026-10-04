@@ -20,3 +20,8 @@ notify.log
 /gta/build/
 /gta/stage/
 /gta/third_party/
+
+# Skyrim port: build output, staging, local vcpkg
+/skyrim/build/
+/skyrim/stage/
+/skyrim/.tools/

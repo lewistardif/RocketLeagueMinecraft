@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "rlcar-skyrim",
+  "version-string": "0.1.0",
+  "builtin-baseline": "5dd2e1600d049b498ff9fb9fe15997533ae0c804",
+  "dependencies": [
+    "directxmath",
+    "directxtk",
+    "fmt",
+    "nlohmann-json",
+    "rapidcsv",
+    "simpleini",
+    "spdlog",
+    "toml11",
+    "xbyak"
+  ]
+}
