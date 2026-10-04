@@ -1,6 +1,7 @@
 package dev.rlcar.test;
 
 import dev.rlcar.RlCar;
+import dev.rlcar.entity.BallEntity;
 import dev.rlcar.entity.CarEntity;
 import dev.rlcar.physics.RlCarNative;
 import java.nio.file.Path;
@@ -13,9 +14,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Look development of the car materials (`gradlew runClientGameTest -Prlcar.lookdev`): a blue and
- * an orange Octane parked at noon, photographed close up from the back, the side and the front.
- * Skipped unless the {@code rlcar.lookdev} system property is set.
+ * Look development of the car and ball materials (`gradlew runClientGameTest -Prlcar.lookdev`): a
+ * blue and an orange Octane parked at noon, photographed close up from the back, the side and the
+ * front; then the ball and its markers. Skipped unless the {@code rlcar.lookdev} system property is
+ * set.
  */
 public class LookdevClientGameTest implements FabricClientGameTest {
 	static boolean enabled() {
@@ -65,7 +67,50 @@ public class LookdevClientGameTest implements FabricClientGameTest {
 			for (int i : new int[] {1, 3, 6}) {
 				view(ctx, sp, Vec3.atBottomCenterOf(p).add(-10 + i * 2.6, 0.35, 12), -1.4, 1.4, -2.4, "preset-" + RlCarNative.PRESETS[i]);
 			}
+			sp.getServer().runCommand("kill @e[type=rlcar:car]");
+			ball(ctx, sp, p);
 		}
+	}
+
+	/**
+	 * The ball: its material on the kickoff spot (white lights) and on the blue and orange halves of
+	 * the field, its lights' pulse, and its markers (the ground reticle and the line under a ball in
+	 * the air; the outline and the dark halo from far away, also through a wall).
+	 */
+	private static void ball(ClientGameTestContext ctx, TestSingleplayerContext sp, BlockPos p) {
+		// The markers hide with the HUD, as the game hides them on HideWorldUI.
+		ctx.runOnClient(mc -> mc.gui.hud.toggle());
+		Vec3 ground = Vec3.atBottomCenterOf(p).add(0, 0, -14);
+		BlockPos pillar = BlockPos.containing(ground.add(-7, 5, 0));
+		sp.getServer().runCommand("setblock " + pillar.getX() + " " + pillar.getY() + " " + pillar.getZ() + " minecraft:barrier");
+		Vec3 high = Vec3.atBottomCenterOf(pillar).add(0, 1 + BallEntity.RADIUS + 0.02, 0);
+		sp.getServer().runOnServer(server -> {
+			ServerLevel level = server.overworld();
+			double[] xs = {0, 3, -3};
+			double[] kickoffDz = {0, -12, 12}; // on the spot; 12 blocks into the orange (+Z) half; into the blue half
+			for (int i = 0; i < 3; i++) {
+				Vec3 at = ground.add(xs[i], BallEntity.RADIUS + 0.02, 0);
+				BallEntity b = BallEntity.create(level, at);
+				b.setKickoff(at.add(0, 0, kickoffDz[i]));
+				level.addFreshEntity(b);
+			}
+			level.addFreshEntity(BallEntity.create(level, high));
+		});
+		ctx.waitTicks(60);
+		Vec3 ball = ground.add(0, BallEntity.RADIUS, 0);
+		view(ctx, sp, ball, -1.6, 0.9, -1.6, "ball-close");
+		view(ctx, sp, ball, 0, 2.2, -6.5, "ball-teams");
+		// The strips light up in the last eighth of every second (the material's Time is game time).
+		// view() takes the picture 10 ticks after it starts: aim for tick 19 of a second.
+		long ticks = sp.getServer().computeOnServer(server -> server.overworld().getGameTime());
+		ctx.waitTicks((int) Math.floorMod(9 - ticks, 20L));
+		view(ctx, sp, ball, -1.6, 0.9, -1.6, "ball-pulse");
+		view(ctx, sp, high, 4.5, -1.0, -7.5, "ball-air");
+		view(ctx, sp, high, 0.5, 4.0, -3.0, "ball-air-above");
+		view(ctx, sp, high, 0, 4.0, -48.0, "ball-far");
+		BlockPos wall = BlockPos.containing(high.add(0, 0, -20));
+		sp.getServer().runCommand("fill " + (wall.getX() - 3) + " " + (wall.getY() - 6) + " " + wall.getZ() + " " + (wall.getX() + 3) + " " + (wall.getY() + 6) + " " + wall.getZ() + " minecraft:stone");
+		view(ctx, sp, high, 0, 4.0, -48.0, "ball-far-wall");
 	}
 
 	private static void view(ClientGameTestContext ctx, TestSingleplayerContext sp, Vec3 car, double dx, double dy, double dz, String name) {

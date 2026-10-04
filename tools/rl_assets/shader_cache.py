@@ -201,7 +201,7 @@ class Expressions:
             return f"Append({a}, {b}, components_a={self.i32()})"
         if k in ("Clamp",):
             return f"Clamp({self.expr()}, {self.expr()}, {self.expr()})"
-        if k in ("Min", "Max"):
+        if k in ("Min", "Max", "Fmod"):
             return f"{k}({self.expr()}, {self.expr()})"
         if k in ("Texture", "TextureParameter", "FlipBookTextureParameter"):
             n = self.name() if k != "Texture" else ""

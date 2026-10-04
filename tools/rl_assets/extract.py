@@ -13,6 +13,7 @@ Pipeline
      `ue3.py`) into `boost/`;
   5. write the unbaked textures and parameter values that the Minecraft mod's ports of the game's
      car material shaders use (`shading.py`): `materials.json` per car and the wheel, `shading/`;
+     likewise for the ball's material and its ground reticle (`ball/materials.json`);
   6. with --wwiser and --vgmstream: the car's sounds (engine, boost, jumps, dodges, landings, tyres,
      impacts, supersonic) from the game's Wwise sound banks (`audio.py`) into `audio/`.
 
@@ -32,6 +33,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +46,7 @@ from audio import PACKAGES as AUDIO_PACKAGES, Audio  # noqa: E402
 from boost import PACKAGES as BOOST_PACKAGES, Boost  # noqa: E402
 from fx import PACKAGES as FX_PACKAGES, FX  # noqa: E402
 from shading import ShadingWriter  # noqa: E402
+from ue3 import Package  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_GAME = Path(r"C:\Program Files\Epic Games\rocketleague")
@@ -60,6 +63,12 @@ CARS = {
 }
 WHEEL = ("Startup", "WHEEL_Star_SM", "Wheel_OEM_MIC")  # Octane's default "OEM" wheel
 BALL = ("GameInfo_Soccar_SF", "Ball_DefaultBall00", "Ball_Default00_D", "Ball_Default00_RGB")
+# The rest of the ball's material (MAT_Ball_V3: its normal map and the tiled Detail_Matte normal
+# from Startup) and the ground reticle decal's texture (Ball_GroundReticle_DMat), for the
+# Minecraft mod's ports of their shaders.
+BALL_NORMAL = "Ball_Default00_N"
+BALL_DETAIL = ("Startup", "Matte_N")
+BALL_RETICLE = "Reticles_01_Pack"
 
 # Team paint (linear RGB). Approximations of the default team colours: the game picks them at
 # runtime from a palette lookup texture (CustomColors.Team*_ColorLookup) that is not extracted here.
@@ -330,6 +339,98 @@ def bake_ball(baker: MaterialBaker, diffuse: str, masks: str) -> dict:
     return out
 
 
+def read_static_mesh(package: Path, path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """LOD 0 of a cooked StaticMesh, read straight from the package: positions and normals (glTF axes,
+    metres), the first UV set and the triangle indices.
+
+    UModel's export of the ball scrambles its UVs (half of them come out as 0, 0): its single,
+    half-precision UV channel is misread. The buffers are found by their headers: the position
+    buffer (stride 12, n, then a bulk array of n 12-byte vectors), the vertex buffer right after it
+    (texture coordinate count, stride, n, full-precision flag, then a bulk array of n elements:
+    packed tangent X and Z, the UVs), and the index buffer (n, then a bulk array of 2-byte indices).
+    """
+    p = Package.open(package)
+    e = p.export_at(path)
+    if e is None:
+        raise SystemExit(f"{path} not in {package.name}")
+    d = p.data[e.offset : e.offset + e.size]
+    for i in range(len(d) - 40):
+        stride, n, esize, count = struct.unpack_from("<4i", d, i)
+        if stride != 12 or esize != 12 or n <= 0 or count != n or i + 16 + 12 * n + 24 > len(d):
+            continue
+        vb = i + 16 + 12 * n
+        uvs, vstride, vn, full, vesize, vcount = struct.unpack_from("<6i", d, vb)
+        if vn == n and vcount == n and vstride == vesize and 1 <= uvs <= 8 and vstride == 8 + uvs * (8 if full else 4):
+            break
+    else:
+        raise SystemExit(f"{path}: vertex buffers not found")
+    pos = np.frombuffer(d, "<f4", count=3 * n, offset=i + 16).reshape(n, 3)
+    vend = vb + 24 + vstride * n
+    vert = np.frombuffer(d, np.uint8, count=vstride * n, offset=vb + 24).reshape(n, vstride)
+    normal = vert[:, 4:7].astype(np.float32) / 127.5 - 1.0
+    normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-6)
+    uv = (np.frombuffer(vert[:, 8:16].tobytes(), "<f4") if full else np.frombuffer(vert[:, 8:12].tobytes(), "<f2")).reshape(n, 2)
+    for j in range(vend, len(d) - 12):
+        vn2, isize, icount = struct.unpack_from("<3i", d, j)
+        if vn2 == n and isize == 2 and icount > 0 and icount % 3 == 0 and j + 12 + 2 * icount <= len(d):
+            idx = np.frombuffer(d, "<u2", count=icount, offset=j + 12)
+            if idx.max() < n:
+                break
+    else:
+        raise SystemExit(f"{path}: index buffer not found")
+    # Unreal (X, Y, Z) uu -> glTF (X, Z, Y) m, as UModel writes it (the swap keeps the winding).
+    return pos[:, [0, 2, 1]] / 100.0, normal[:, [0, 2, 1]], uv.astype(np.float32), idx.astype(np.uint16)
+
+
+def write_mesh_gltf(out: Path, pos: np.ndarray, normal: np.ndarray, uv: np.ndarray, idx: np.ndarray, material: str) -> None:
+    """A one-primitive glTF (+ .bin of the same stem) in UModel's layout, for `write_gltf`."""
+    parts = [idx.astype("<u2").tobytes(), pos.astype("<f4").tobytes(), normal.astype("<f4").tobytes(), uv.astype("<f4").tobytes()]
+    parts[0] += b"\0" * (-len(parts[0]) % 4)
+    views, offset = [], 0
+    for b in parts:
+        views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(b)})
+        offset += len(b)
+    out.with_suffix(".bin").write_bytes(b"".join(parts))
+    g = {
+        "asset": {"generator": "tools/rl_assets/extract.py", "version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"name": out.stem, "mesh": 0}],
+        "materials": [{"name": material}],
+        "meshes": [{"name": out.stem, "primitives": [{"attributes": {"POSITION": 1, "NORMAL": 2, "TEXCOORD_0": 3}, "indices": 0, "material": 0}]}],
+        "buffers": [{"uri": f"{out.stem}.bin", "byteLength": offset}],
+        "bufferViews": views,
+        "accessors": [
+            {"bufferView": 0, "componentType": 5123, "count": len(idx), "type": "SCALAR"},
+            {"bufferView": 1, "componentType": 5126, "count": len(pos), "type": "VEC3", "min": pos.min(0).tolist(), "max": pos.max(0).tolist()},
+            {"bufferView": 2, "componentType": 5126, "count": len(pos), "type": "VEC3"},
+            {"bufferView": 3, "componentType": 5126, "count": len(pos), "type": "VEC2"},
+        ],
+    }
+    out.write_text(json.dumps(g, indent=1))
+
+
+def write_ball_shading(textures: Textures, ball_dir: Path, diffuse: str, masks: str) -> None:
+    """Inputs of the Minecraft mod's ports of the ball's shaders: `MAT_Ball_V3`'s four textures as the
+    game samples them (unbaked) in `materials.json` (keyed by the glTF material, "Ball"), with the
+    team colours its `TeamColor_WorldSpace` function blends between, and the ground reticle's texture."""
+    tex = {}
+    for key, name in (("Diffuse", diffuse), ("Normal", BALL_NORMAL), ("Detail", BALL_DETAIL[1]), ("Mask", masks), ("Reticle", BALL_RETICLE)):
+        src = textures.path(name)
+        if src is None:
+            print(f"  ball: texture {name} was not exported; the mod draws the ball with its base colour")
+            return
+        shutil.copy2(src, ball_dir / f"{name}.png")
+        tex[key] = f"{name}.png"
+    reticle = tex.pop("Reticle")
+    doc = {
+        "materials": {"Ball": {"kind": "ball", "base": "MAT_Ball_V3", "textures": tex}},
+        "teams": {k: list(v) for k, v in TEAMS.items()},
+        "reticle": reticle,
+    }
+    (ball_dir / "materials.json").write_text(json.dumps(doc, indent=1))
+
+
 def write_gltf(src_gltf: Path, out_dir: Path, out_name: str, materials: list[dict], images: list[str]) -> None:
     g = json.loads(src_gltf.read_text())
     bin_name = f"{src_gltf.stem}.bin"
@@ -436,13 +537,18 @@ def main() -> None:
     package, mesh, diffuse, masks = BALL
     print(f"ball: {package}.{mesh}")
     umodel_export(umodel, pkgs, export, package, mesh)
-    for tex in (diffuse, masks):
+    for tex in (diffuse, masks, BALL_NORMAL, BALL_RETICLE):
         umodel_export(umodel, pkgs, export, package, tex)
-    src = next((export / package).rglob(f"StaticMesh3/{mesh}.gltf"))
+    umodel_export(umodel, pkgs, export, *BALL_DETAIL)
+    # The mesh from the package itself (UModel's export of it has scrambled UVs).
+    src = args.work / "ball_mesh" / "Ball_Default.gltf"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    write_mesh_gltf(src, *read_static_mesh(pkgs / f"{package}.upk", f"Ball_Default.Meshes.{mesh}"), "MAT_Ball_V3")
     ball_dir = args.out / "ball"
     ball_dir.mkdir(parents=True, exist_ok=True)
     baker = MaterialBaker(ball_dir, Textures(export, package))
     write_gltf(src, ball_dir, "ball.gltf", [bake_ball(baker, diffuse, masks)], baker.images)
+    write_ball_shading(Textures(export, package), ball_dir, diffuse, masks)
 
     print("boost: flame cones, smoke trail")
     grouped = args.work / "export_groups"

@@ -102,6 +102,31 @@ and ports of the same code (`RlAudio`, `RlFx`):
 They need the extended car state of `rl_car_ffi`'s `rlcar_car_contacts` (velocity, wheel and body
 contacts, jump/flip flags), sent with every car pose so other players' cars play them too.
 
+#### The ball's material and markers
+
+The ball is drawn with a port of its own material, `MAT_Ball_V3` (`rl_ball.fsh`, same lighting as
+the cars). It uses the normal map, the tiled `Detail_Matte` normal and the mask, all extracted unbaked
+into `ball/` with a `materials.json`. The light strips pulse once a second, in the colour of the
+field half the ball is in (the game's `TeamColor_WorldSpace`): warm white within about 10 blocks of
+the kickoff spot (where the ball was put down), blue past that towards -Z (Rocket League's -Y),
+orange towards +Z. The game also brightens the ball near a goal; there are no goals, so that stays
+off, as do the arena-box reflections (the sky dome is reflected instead).
+
+Around it are the markers the game's ball FX actor (`FXActors.Ball.Ball_FXActor`) attaches, drawn
+with ports of their shaders (`rl_marker.fsh`):
+
+- **Ground reticle** (`Ball_GroundReticle_DMat`): a ring the size of the ball, projected straight
+  down onto the blocks under it (up to 31 blocks below), with an inner ring that closes in as the
+  ball climbs (fully closed 10 blocks up), cut by the reticle texture's cross. This is the landing
+  marker.
+- **Location line** (`Ball_LocationBeam01_PS`, after the ball's first second): a faint dashed line
+  25 blocks down from the ball; a ring around the ball drawn through everything once the ball is 20
+  to 41 blocks away (its outline); and a dark halo behind it at that distance, which keeps the ball
+  readable against the sky.
+
+They hide with the HUD (F1), as the game hides them with its world UI. Without `ball/materials.json`
+the ball keeps its baked texture, and the reticle has no cross cut.
+
 ### Playing
 
 In game: take **RL Car** from the *Tools & Utilities* creative tab and use it on a block. Sneak
