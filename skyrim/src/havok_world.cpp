@@ -66,10 +66,24 @@ bool overlaps(const float* alo, const float* ahi, const float* blo, const float*
 bool included(RE::COL_LAYER layer) {
 	switch (layer) {
 		case RE::COL_LAYER::kStatic:
+		case RE::COL_LAYER::kAnimStatic:
+		case RE::COL_LAYER::kTransparent:
+		case RE::COL_LAYER::kTrees:
+		case RE::COL_LAYER::kProps:
 		case RE::COL_LAYER::kTerrain:
-		case RE::COL_LAYER::kGround: return true;
+		case RE::COL_LAYER::kGround:
+		case RE::COL_LAYER::kInvisibleWall:
+		case RE::COL_LAYER::kStairHelper: return true;
 		default: return false;
 	}
+}
+
+// Loose things (baskets, barrels knocked over, bodies) are simulated: the car drives through them.
+bool solid(const RE::hkpEntity* entity, bool fixedIsland) {
+	if (fixedIsland) return true;
+	using M = RE::hkpMotion::MotionType;
+	auto type = entity->motion.type.get();
+	return type == M::kFixed || type == M::kKeyframed;
 }
 
 bool guardedAabb(const RE::hkpShape* shape, const float* xf, RE::hkAabb& out) {
@@ -90,15 +104,47 @@ struct Body {
 struct Collector {
 	const Query& q;
 	sky::Cache& out;
+	Stats& stats;
 	float hlo[3], hhi[3];  // Havok world space
 	float toSky;
 	bool terrain = false;
 	std::unordered_set<int>& loggedTypes;
 
+	void toRl(const float* h, float* rl) const { q.frame->toRl({h[0] * toSky, h[1] * toSky, h[2] * toSky}, rl); }
+	void dirToRl(const float* h, float* rl) const { space::dirToRl({h[0], h[1], h[2]}, rl); }
+	float lenToRl(float h) const { return float(q.frame->lenToRl(h * toSky)); }
+
+	void emitBox(const float* xf, const float* half, float radius) {
+		float c[3], ax[3][3], h[3];
+		toRl(xf + 12, c);
+		for (int i = 0; i < 3; i++) {
+			dirToRl(xf + i * 4, ax[i]);
+			h[i] = lenToRl(half[i] + radius);
+		}
+		if (!finite(c, 3) || !finite(h, 3) || h[0] <= 0 || h[1] <= 0 || h[2] <= 0) return;
+		out.addBox(c, ax, h);
+		stats.boxes++;
+	}
+
+	// Shapes we can't read exactly: their bounding box, unless it's huge.
+	void emitAabb(const RE::hkpShape* shape, const float* xf) {
+		RE::hkAabb box;
+		shape->GetAabbImpl(*reinterpret_cast<const RE::hkTransform*>(xf), 0.0f, box);
+		float lo[3], hi[3];
+		aabbOf(box, lo, hi);
+		if (!finite(lo, 3) || !finite(hi, 3) || (hi[0] - lo[0]) * toSky > 5000 || (hi[1] - lo[1]) * toSky > 5000 || (hi[2] - lo[2]) * toSky > 5000)
+			return;
+		float mid[3] = {(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f};
+		alignas(16) float frame[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, mid[0], mid[1], mid[2], 1};
+		float half[3] = {(hi[0] - lo[0]) * 0.5f, (hi[1] - lo[1]) * 0.5f, (hi[2] - lo[2]) * 0.5f};
+		emitBox(frame, half, 0);
+		stats.fallbacks++;
+	}
+
 	void emitTri(const float* a, const float* b, const float* c) {
 		float r[3][3];
 		const float* w[3] = {a, b, c};
-		for (int i = 0; i < 3; i++) q.frame->toRl({w[i][0] * toSky, w[i][1] * toSky, w[i][2] * toSky}, r[i]);
+		for (int i = 0; i < 3; i++) toRl(w[i], r[i]);
 		if (!finite(r[0], 9)) return;
 		if (terrain) {
 			// The land is a height field: its outside is up, whatever the winding says.
@@ -146,7 +192,10 @@ struct Collector {
 			case T::kTriangleCollection:
 			case T::kConvexList: {
 				const auto* container = shape->GetContainer();
-				if (!container) return;
+				if (!container) {
+					emitAabb(shape, xf);
+					return;
+				}
 				int guard = 0;
 				for (auto key = container->GetFirstKey(); key != RE::HK_INVALID_SHAPE_KEY && guard < 200000; key = container->GetNextKey(key), guard++) {
 					RE::hkpShapeBuffer buffer;
@@ -164,6 +213,58 @@ struct Collector {
 				float w[3][3];
 				for (int v = 0; v < 3; v++) xfPoint(xf, vec(shape, 0x30 + v * 0x10), w[v]);
 				if (finite(w[0], 9)) emitTri(w[0], w[1], w[2]);
+				return;
+			}
+			case T::kBox:
+				emitBox(xf, vec(shape, 0x30), field<float>(shape, 0x20));
+				return;
+			case T::kCapsule:
+			case T::kSphere: {
+				const float zero[3] = {0, 0, 0};
+				float wa[3], wb[3], a[3], b[3];
+				xfPoint(xf, type == T::kCapsule ? vec(shape, 0x30) : zero, wa);
+				xfPoint(xf, type == T::kCapsule ? vec(shape, 0x40) : zero, wb);
+				toRl(wa, a);
+				toRl(wb, b);
+				float r = lenToRl(field<float>(shape, 0x20));
+				if (finite(a, 3) && finite(b, 3) && std::isfinite(r) && r > 0 && r < 5000) {
+					out.addCapsule(a, b, r);
+					stats.capsules++;
+				}
+				return;
+			}
+			case T::kConvexVertices: {
+				const auto& planes = *reinterpret_cast<const RE::hkArray<RE::hkVector4>*>(reinterpret_cast<const uint8_t*>(shape) + 0x78);
+				const float radius = field<float>(shape, 0x20);
+				if (planes.size() <= 0 || planes.size() > 512) {
+					emitAabb(shape, xf);
+					return;
+				}
+				std::vector<std::array<float, 4>> rl;
+				for (int32_t i = 0; i < planes.size(); i++) {
+					alignas(16) float p[4];
+					_mm_store_ps(p, planes.data()[i].quad);
+					float nw[3];
+					xfDir(xf, p, nw);
+					const float dw = p[3] - (nw[0] * xf[12] + nw[1] * xf[13] + nw[2] * xf[14]) - radius;
+					float onPlane[3] = {-nw[0] * dw, -nw[1] * dw, -nw[2] * dw}, n[3], o[3];
+					dirToRl(nw, n);
+					toRl(onPlane, o);
+					if (!finite(n, 3) || !finite(o, 3)) return;
+					rl.push_back({n[0], n[1], n[2], -(n[0] * o[0] + n[1] * o[1] + n[2] * o[2])});
+				}
+				RE::hkAabb box;
+				shape->GetAabbImpl(*reinterpret_cast<const RE::hkTransform*>(xf), 0.0f, box);
+				float hl[3], hh[3], lo[3] = {FLT_MAX, FLT_MAX, FLT_MAX}, hi[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+				aabbOf(box, hl, hh);
+				for (int c = 0; c < 8; c++) {
+					float corner[3] = {(c & 1) ? hh[0] : hl[0], (c & 2) ? hh[1] : hl[1], (c & 4) ? hh[2] : hl[2]}, r[3];
+					toRl(corner, r);
+					for (int i = 0; i < 3; i++) lo[i] = std::min(lo[i], r[i]), hi[i] = std::max(hi[i], r[i]);
+				}
+				if (!finite(lo, 3) || !finite(hi, 3)) return;
+				out.addConvex(rl, lo, hi);
+				stats.convexes++;
 				return;
 			}
 			case T::kConvexTransform:
@@ -191,7 +292,8 @@ struct Collector {
 				return;
 			}
 			default:
-				if (loggedTypes.insert(int(type)).second) logger::info("collision: shape type {} not read yet (convex={})", int(type), shape->IsConvex());
+				if (loggedTypes.insert(int(type)).second) logger::info("collision: shape type {} read as its bounding box (convex={})", int(type), shape->IsConvex());
+				if (shape->IsConvex()) emitAabb(shape, xf);
 				return;
 		}
 	}
@@ -223,7 +325,7 @@ bool gather(RE::TESObjectCELL* cell, const Query& q, sky::Cache& out, Stats& sta
 		return false;
 	}
 	const float toHavok = RE::bhkWorld::GetWorldScale();
-	Collector col{q, out, {FLT_MAX, FLT_MAX, FLT_MAX}, {-FLT_MAX, -FLT_MAX, -FLT_MAX}, RE::bhkWorld::GetWorldScaleInverse(), false, g_loggedTypes};
+	Collector col{q, out, stats, {FLT_MAX, FLT_MAX, FLT_MAX}, {-FLT_MAX, -FLT_MAX, -FLT_MAX}, RE::bhkWorld::GetWorldScaleInverse(), false, g_loggedTypes};
 	for (int c = 0; c < 8; c++) {
 		float p[3] = {(c & 1) ? q.hi[0] : q.lo[0], (c & 2) ? q.hi[1] : q.lo[1], (c & 4) ? q.hi[2] : q.lo[2]};
 		space::V3 s = q.frame->toSky(p);
@@ -234,7 +336,7 @@ bool gather(RE::TESObjectCELL* cell, const Query& q, sky::Cache& out, Stats& sta
 	std::vector<Body> bodies;
 	{
 		RE::BSReadLockGuard lock(bhk->worldLock);
-		auto addIsland = [&](RE::hkpSimulationIsland* island) {
+		auto addIsland = [&](RE::hkpSimulationIsland* island, bool fixed) {
 			if (!island) return;
 			auto& entities = island->entities;
 			for (int32_t i = 0; i < entities.size(); i++) {
@@ -242,7 +344,7 @@ bool gather(RE::TESObjectCELL* cell, const Query& q, sky::Cache& out, Stats& sta
 				if (!entity) continue;
 				const auto& collidable = entity->collidable;
 				const auto layer = collidable.GetCollisionLayer();
-				if (!included(layer)) continue;
+				if (!included(layer) || !solid(entity, fixed)) continue;
 				const auto* shape = collidable.shape;
 				const auto* xf = static_cast<const float*>(collidable.motion);
 				if (!shape || !xf || !finite(xf, 16)) continue;
@@ -261,9 +363,9 @@ bool gather(RE::TESObjectCELL* cell, const Query& q, sky::Cache& out, Stats& sta
 				bodies.push_back({shape, xf, layer == RE::COL_LAYER::kTerrain || layer == RE::COL_LAYER::kGround});
 			}
 		};
-		addIsland(world->fixedIsland);
-		for (int32_t i = 0; i < world->activeSimulationIslands.size(); i++) addIsland(world->activeSimulationIslands.data()[i]);
-		for (int32_t i = 0; i < world->inactiveSimulationIslands.size(); i++) addIsland(world->inactiveSimulationIslands.data()[i]);
+		addIsland(world->fixedIsland, true);
+		for (int32_t i = 0; i < world->activeSimulationIslands.size(); i++) addIsland(world->activeSimulationIslands.data()[i], false);
+		for (int32_t i = 0; i < world->inactiveSimulationIslands.size(); i++) addIsland(world->inactiveSimulationIslands.data()[i], false);
 
 		static constexpr CollectFn collect = [](Collector* c, const Body* b) {
 			c->terrain = b->terrain;

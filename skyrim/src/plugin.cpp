@@ -61,12 +61,15 @@ struct RlCar {
 	float hitbox[6] = {};
 	bool rearView = false;
 	visual::Prop body;
+	RE::TESBoundObject* base = nullptr;
 	float modelScale = 1, modelLength = 1;
 	float cacheAge = 0;
 	havok::Stats stats;
-	int gathers = 0;
+	int gathers = 0, outran = 0;
 	double gatherMs = 0, gatherMaxMs = 0;
 	float logTimer = 0;
+	RE::NiPoint3 heldFeet;
+	bool held = false;
 
 	~RlCar() { destroy(); }
 
@@ -80,7 +83,7 @@ struct RlCar {
 	space::V3 position() const { return frame.toSky(pose); }
 
 	bool spawn(RE::PlayerCharacter* player) {
-		RE::TESBoundObject* base = visual::lookup(g_settings.carForm.plugin, g_settings.carForm.id);
+		base = visual::lookup(g_settings.carForm.plugin, g_settings.carForm.id);
 		if (!base) {
 			logger::warn("CarForm {}|{:06X} not found; using Skyrim.esm|01C0C0", g_settings.carForm.plugin, g_settings.carForm.id);
 			notify("CarForm not found, using the hand cart");
@@ -107,15 +110,25 @@ struct RlCar {
 		world = g_api.cbworld_new(sky.get(), &sky::SkyWorld::cbRaycast, &sky::SkyWorld::cbBox, &sky::SkyWorld::cbSphere);
 		camera = g_api.camera_new();
 		auto at = player->GetPosition();
-		frame.origin = {at.x, at.y, at.z};
-		float pos[3] = {0, 0, 20};
-		g_api.car_reset(car, pos, space::headingToRlYaw(player->data.angle.z), 0, 0);
-		g_api.car_pose(car, 1, pose);
-		gather(player);
+		startAt(player, player->data.angle.z);
 		logger::info("car: {} {:08X} ({:.0f} x {:.0f} x {:.0f} units), preset {}, scale {:.2f} ({:.1f} units/uu), model scale {:.2f}, at {:.0f} {:.0f} {:.0f}",
 		             base->GetName(), base->GetFormID(), ex, ey, body.boundMax[2] - body.boundMin[2], Settings::presetName(g_settings.preset),
 		             frame.scale, frame.k(), modelScale, at.x, at.y, at.z);
 		return true;
+	}
+
+	// The car upright where the player is, the collision copied again from scratch.
+	void startAt(RE::PlayerCharacter* player, float heading) {
+		auto at = player->GetPosition();
+		frame.origin = {at.x, at.y, at.z};
+		float pos[3] = {0, 0, 20};
+		g_api.car_reset(car, pos, space::headingToRlYaw(heading), 0, 0);
+		g_api.camera_reset(camera);
+		g_api.car_pose(car, 1, pose);
+		sky->forget();
+		sky->car.clear();
+		held = false;
+		gather(player);
 	}
 
 	void gather(RE::PlayerCharacter* player) {
@@ -135,14 +148,20 @@ struct RlCar {
 		gathers++;
 		gatherMs += stats.ms;
 		gatherMaxMs = std::max(gatherMaxMs, stats.ms);
-		if (gathers <= 3)
-			logger::info("collision cache: {} bodies, {} triangles in {:.1f} ms{}", stats.bodies, stats.tris, stats.ms,
+		if (gathers <= 3 || (stats.ms > 15 && gathers % 20 == 0))
+			logger::info("collision cache: {} bodies, {} triangles ({} boxes, {} capsules, {} convex, {} as bounding boxes) in {:.1f} ms{}",
+			             stats.bodies, stats.tris, stats.boxes, stats.capsules, stats.convexes, stats.fallbacks, stats.ms,
 			             stats.faults ? fmt::format(", {} faulted shapes skipped", stats.faults) : "");
 	}
 
 	void refresh(RE::PlayerCharacter* player, float delta) {
 		cacheAge += delta;
-		bool edge = !sky->car.covers(pose, g_settings.cacheRadius * 0.5f);
+		const float* v = pose + 12;
+		float ahead[3] = {pose[0] + v[0] * (delta + 0.1f), pose[1] + v[1] * (delta + 0.1f), pose[2] + v[2] * (delta + 0.1f)};
+		if (!sky->car.covers(pose, 150.0f) && outran++ < 20)
+			logger::warn("the car outran its collision copy at {:.0f} uu/s (frame {:.0f} ms); copying again",
+			             std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]), delta * 1000);
+		bool edge = !sky->car.covers(ahead, g_settings.cacheRadius * 0.5f);
 		if (edge || cacheAge >= g_settings.cacheRefresh) gather(player);
 	}
 
@@ -183,10 +202,19 @@ struct RlCar {
 		RE::NiPoint3 origin{float(w.x + up.x * g_settings.modelOffset - (mm[0][0] * a[0] + mm[0][1] * a[1] + mm[0][2] * a[2])),
 		                    float(w.y + up.y * g_settings.modelOffset - (mm[1][0] * a[0] + mm[1][1] * a[1] + mm[1][2] * a[2])),
 		                    float(w.z + up.z * g_settings.modelOffset - (mm[2][0] * a[0] + mm[2][1] * a[1] + mm[2][2] * a[2]))};
+		if (!body.get() && base) {
+			logger::info("the car's model was unloaded; placing it again");
+			body.spawn(base, player);
+		}
 		body.place(player, origin, niMatrix(mm), modelScale);
 		space::V3 c = position();
-		puppet::hold(player, {float(c.x), float(c.y), float(c.z - frame.lenToSky(17.0))});
+		heldFeet = {float(c.x), float(c.y), float(c.z - frame.lenToSky(17.0))};
+		held = true;
+		puppet::hold(player, heldFeet);
 	}
+
+	// Skyrim moved the player itself (a script, fast travel inside the worldspace).
+	bool teleported(RE::PlayerCharacter* player) const { return held && player->GetPosition().GetDistance(heldFeet) > 300.0f; }
 
 	void updateCamera(RE::PlayerCharacter* player, float alpha, float dt, const DriveInput& in) {
 		float view[ffi::CAMERA_VIEW_FLOATS];
@@ -311,7 +339,15 @@ void update(RE::PlayerCharacter* player, float delta) {
 	}
 	RlCar& c = *g_car;
 	if (player->IsDead()) return leaveCar(player, "the Dragonborn died");
-	if (!player->GetParentCell() || worldIdOf(player) != g_worldId) return leaveCar(player, "cell change");
+	auto* ui = RE::UI::GetSingleton();
+	if (!player->GetParentCell() || !player->Is3DLoaded() || (ui && ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME))) return;
+	if (uint32_t id = worldIdOf(player); id != g_worldId || c.teleported(player)) {
+		auto p = player->GetPosition();
+		logger::info("{} ({:08X}): the car starts again at {:.0f} {:.0f} {:.0f}", id != g_worldId ? "new cell or worldspace" : "Skyrim moved the player",
+		             id, p.x, p.y, p.z);
+		g_worldId = id;
+		c.startAt(player, player->data.angle.z);
+	}
 	if (!menu && (g_edges.pressed(Action::BecomeCar) || g_edges.pressed(Action::ExitCar))) return leaveCar(player, "key");
 
 	DriveInput drive{};

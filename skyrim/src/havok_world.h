@@ -14,7 +14,7 @@ struct Query {
 };
 
 struct Stats {
-	int bodies = 0, tris = 0, faults = 0;
+	int bodies = 0, tris = 0, boxes = 0, capsules = 0, convexes = 0, fallbacks = 0, faults = 0;
 	double ms = 0;
 };
 

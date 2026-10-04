@@ -399,6 +399,40 @@ static void testNoTunnelling() {
 	api.cbworld_free(cw);
 }
 
+// A wedge given as a convex hull's planes (n.p + d <= 0 inside), like Havok's convex vertices shape.
+static void testConvexRamp() {
+	sky::SkyWorld w;
+	w.wallRamps = false;
+	quad(w.car, -5000, -5000, 5000, 5000, 0);
+	float s = 1.0f / std::sqrt(1.0f + 0.09f);
+	std::vector<std::array<float, 4>> planes = {
+		{0, 0, -1, 0}, {-0.3f * s, 0, s, 0}, {1, 0, 0, -1000}, {0, 1, 0, -500}, {0, -1, 0, -500}};
+	float lo[3] = {0, -500, 0}, hi[3] = {1000, 500, 300};
+	w.car.addConvex(planes, lo, hi);
+	finish(w.car, -5000, -5000, -100, 5000, 5000, 3000);
+	CHECK(w.car.tris.size() >= 2 + 8);
+	float o[3] = {500, 0, 1000}, down[3] = {0, 0, -1}, t, n[3];
+	CHECK(sky::SkyWorld::rayCache(w.car, o, down, 2000, t, n) && std::fabs(t - 850) < 1e-2 && n[2] > 0.9f && n[0] < -0.2f);
+
+	ffi::World* cw = api.cbworld_new(&w, &sky::SkyWorld::cbRaycast, &sky::SkyWorld::cbBox, &sky::SkyWorld::cbSphere);
+	ffi::Car* car = api.car_new(0);
+	float pos[3] = {-2500, 0, 20};
+	api.car_reset(car, pos, 0, 0, 0);
+	api.car_set_unlimited_boost(car, 1);
+	float pose[ffi::POSE_FLOATS], peak = 0, worst = 1e9f;
+	for (int t2 = 0; t2 < 360; t2++) {
+		api.car_step_cb(car, cw, 1, 1.0f, 0, 0, 0, 0, ffi::buttons::BOOST);
+		api.car_pose(car, 1, pose);
+		peak = std::max(peak, pose[2]);
+		if (pose[0] > 50 && pose[0] < 950 && std::fabs(pose[1]) < 400) worst = std::min(worst, pose[2] - 0.3f * pose[0]);
+	}
+	std::printf("  convex wedge ramp: peak height %.0f uu, lowest %.1f uu above the slope\n", peak, worst);
+	CHECK(peak > 350);
+	CHECK(worst > 0);
+	api.car_free(car);
+	api.cbworld_free(cw);
+}
+
 static void testBallOnTriangles() {
 	sky::SkyWorld w;
 	w.wallRamps = false;
@@ -502,6 +536,7 @@ int main(int argc, char** argv) {
 	testTerrainSeams();
 	testWallRampClimb();
 	testNoTunnelling();
+	testConvexRamp();
 	testBallOnTriangles();
 	testBallMatchesReference();
 	std::printf("%d checks, %d failures\n", g_checks, g_failures);

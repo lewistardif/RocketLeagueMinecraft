@@ -10,9 +10,10 @@ Minecraft ports, it drives this repository's Rust core (`crates/rl_car_core`) th
 
 - The core simulates the car at a fixed 120 Hz with Rocket League's physics. A vanilla Skyrim model
   (a hand cart by default) with its collision turned off is drawn at the pose the core computes.
-- Skyrim's world becomes the core's collision: the terrain and static meshes around the car are
-  copied out of Havok into a triangle cache, and the car's wheels, body and the ball collide with
-  those triangles exactly.
+- Skyrim's world becomes the core's collision: everything solid around the car (terrain, buildings,
+  rocks, trees, doors and gates, invisible walls, the ramps over stairs) is copied out of Havok as
+  triangles, boxes, capsules and convex hulls, and the car's wheels and body collide with them
+  exactly. Loose objects that Skyrim simulates (baskets, bodies) don't stop the car.
 - Invisible quarter-pipes where the ground meets a steep wall let you drive up walls and cliffs like
   the arena's curved walls. Turn them off with `WallRamps = 0`.
 - The camera is the core's Rocket League car camera with swivel and rear view.
@@ -68,8 +69,9 @@ is `Documents\My Games\Skyrim Special Edition\SKSE\RLCar.log`.
 
 Every binding can be changed in `RLCar.ini`. Use commas for alternatives and `+` for chords. While you
 are the car, Skyrim's own controls are off; Esc, the console and the gamepad's Start still open
-Skyrim's menus, and the car waits while they are open. Dying, a loading screen or going through a load
-door gets you out of the car.
+Skyrim's menus, and the car waits while they are open. After a loading screen (fast travel, a load
+door, an interior) or when a script moves you, the car starts again where you arrived. Dying or
+loading a save gets you out of the car.
 
 PlayStation pads (DualSense, DualShock 4) work directly over USB or Bluetooth, like in the GTA port.
 
@@ -94,7 +96,7 @@ game. `DebugLog = 1` writes the car's position, speed and collision cache to the
 ```
 src/main.cpp          SKSE entry, log, messages
 src/plugin.*          on foot <-> car, the 120 Hz stepping, the car's model and the cache refresh
-src/havok_world.*     copies Havok's terrain and static meshes near the car (read lock, fault guards)
+src/havok_world.*     copies Havok's collision near the car: meshes, boxes, capsules, convex hulls (read lock, fault guards)
 src/sky_world.*       the core's three collision callbacks on that copy, wall quarter-pipes
 src/puppet.*          hides the Dragonborn, parks their capsule under the car, hands them back
 src/camera.*          Skyrim's camera at the Rocket League camera (PlayerCamera::Update hook)
@@ -102,13 +104,18 @@ src/input.*           keyboard, XInput and PlayStation pads; Skyrim's controls o
 src/visual.*          the vanilla model placed and moved every frame
 src/space.h           Rocket League <-> Skyrim coordinates
 src/rlcar_ffi.*, ini.*, bindings.*, settings.*, hid_pad.*, sony_pad.h   from the GTA port
-tests/tests.cpp       unit tests (no Skyrim needed): coordinates, contacts, driving on triangles
+tests/tests.cpp       unit tests (no Skyrim needed): coordinates, contacts, driving on triangles and hulls
 extern/CommonLibSSE-NG  git submodule (alandtse/CommonLibVR, branch ng)
 ```
 
 ## Limits
 
 - The car is drawn with a vanilla model, not the Rocket League car.
-- Only terrain and static meshes collide; doors, trees, rocks made of primitives and invisible walls
-  don't yet.
+- The collision is a copy, made again every `CacheRefresh` seconds and whenever the car nears its
+  edge: a door that opens in between is seen up to that late. A long frame hitch at supersonic speed
+  can carry the car past the copy; it is then made again at once and the log says
+  `the car outran its collision copy`.
+- Skyrim only has collision where cells are loaded (the uGrids around the player, who rides under the
+  car), so very fast long drives can reach ground that isn't there yet.
+- Shapes whose layout isn't known are read as their bounding box (logged once per shape type).
 - No ball, no bumps or demolitions yet.
