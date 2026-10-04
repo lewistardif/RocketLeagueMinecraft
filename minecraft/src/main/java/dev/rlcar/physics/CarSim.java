@@ -31,6 +31,7 @@ public final class CarSim implements AutoCloseable {
 	private final BlockSnapshot snapshot = new BlockSnapshot();
 	private BlockPos origin;
 	private final float[] poseBuffer = new float[RlCarNative.POSE_FLOATS];
+	private final float[] contactBuffer = new float[RlCarNative.CONTACT_FLOATS];
 	private @Nullable NativeCamera camera;
 
 	public CarSim(int preset, BlockPos origin) {
@@ -74,7 +75,8 @@ public final class CarSim implements AutoCloseable {
 	/** Current pose (interpolated {@code alpha} of the way through the last tick). */
 	public CarPose pose(float alpha, CarPose out) {
 		int flags = this.car.pose(alpha, this.poseBuffer);
-		return out.setFromNative(this.origin, this.poseBuffer, flags);
+		int contactFlags = this.car.contacts(this.contactBuffer);
+		return out.setFromNative(this.origin, this.poseBuffer, flags, this.contactBuffer, contactFlags);
 	}
 
 	public Vec3 position() {

@@ -48,6 +48,7 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		CarPose pose = car.renderPose(partialTicks);
 		state.pose = pose;
 		state.preset = car.preset();
+		state.carId = car.getId();
 		state.color = car.color();
 		System.arraycopy(hitbox(car.preset()), 0, state.hitbox, 0, 6);
 		if (pose != null) {
@@ -80,7 +81,9 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 	@Override
 	protected AABB getBoundingBoxForCulling(CarEntity car, float partialTicks) {
 		// Keep drawing while the boost smoke trails behind (it is part of this renderer).
-		return super.getBoundingBoxForCulling(car, partialTicks).inflate(RlBoost.smokeRadius(car));
+		// The effects too (their particles and trails, simulated in world space).
+		AABB box = super.getBoundingBoxForCulling(car, partialTicks);
+		return box.inflate(Math.max(RlBoost.smokeRadius(car), RlFx.radius(car, box.getCenter().x, box.getCenter().y, box.getCenter().z)));
 	}
 
 	private static float[] hitbox(int preset) {
@@ -103,6 +106,7 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		}
 		// Smoke first, world-aligned around the car origin.
 		RlBoost.submitSmoke(collector, poseStack, state, camera);
+		RlFx.submit(collector, poseStack, state.carId, state.x, state.y, state.z, camera);
 		poseStack.pushPose();
 		poseStack.rotate(pose.rotation);
 		if (state.boostCones != null) {

@@ -234,6 +234,7 @@ void main() {
     r11.x = t8.x;
     r11.w = t8.y;
     r16.xyz = r11.w * r17xzw + r16.xyz;
+    vec3 dbgBase = r16.xyz;
     r7.w = 1.0 - r5.w;
     r5.w = r11.w * r7.w + r5.w;
     r7.w = 1.0 - r11.x;
@@ -328,5 +329,15 @@ void main() {
     color = r3.xyz * e.lightColor + color;
     color = r0.xyz * ambientColor(e) + color;
 
+#if defined(RL_DEBUG_1)
+    fragColor = rlFinish(dbgBase);
+#elif defined(RL_DEBUG_2)
+    fragColor = rlFinish(r3.xyz * e.lightColor);
+#elif defined(RL_DEBUG_3)
+    fragColor = rlFinish(color - r3.xyz * e.lightColor);
+#elif defined(RL_DEBUG_4)
+    fragColor = rlFinish(vec3(0.0));
+#else
     fragColor = rlFinish(color);
+#endif
 }

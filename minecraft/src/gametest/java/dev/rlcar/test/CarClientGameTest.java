@@ -8,7 +8,9 @@ import dev.rlcar.client.CarKeys;
 import dev.rlcar.client.ClientDriving;
 import dev.rlcar.client.PadBindEntry;
 import dev.rlcar.client.PadBinds;
+import dev.rlcar.client.RlAudio;
 import dev.rlcar.client.RlBoost;
+import dev.rlcar.client.RlFx;
 import dev.rlcar.entity.BallEntity;
 import dev.rlcar.entity.CarEntity;
 import dev.rlcar.physics.CarPose;
@@ -50,6 +52,9 @@ public class CarClientGameTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
+		if (LookdevClientGameTest.enabled()) {
+			return;
+		}
 		checkBindings(ctx);
 		try (TestSingleplayerContext sp = ctx.worldBuilder().create()) {
 			sp.getConnection().waitForChunksRender();
@@ -97,6 +102,10 @@ public class CarClientGameTest implements FabricClientGameTest {
 			check(cam.forward.x > 0.99 && cam.up.y > 0.99, "camera looks along the car: forward " + cam.forward);
 			check(Math.abs(cam.fov - 58.72) < 0.05, "Rocket League's 90 degree (16:9 horizontal) FOV: vertical " + cam.fov);
 			shot(ctx, "1-parked");
+			if (ctx.computeOnClient(mc -> RlAudio.extracted() && RlAudio.ready())) {
+				int voices = ctx.computeOnClient(mc -> RlAudio.voices());
+				check(voices >= 3, "the engine, exhaust and tyre sounds play (" + voices + " voices)");
+			}
 
 			// Throttle + Boost, with Boost rebound to the left mouse button (Rocket League's default).
 			// Left click is Attack in Minecraft; while driving it must only boost.
@@ -114,6 +123,14 @@ public class CarClientGameTest implements FabricClientGameTest {
 			if (ctx.computeOnClient(mc -> RlBoost.extracted())) {
 				check(ctx.computeOnClient(mc -> mc.player.getVehicle() instanceof CarEntity c && RlBoost.smokeRadius(c) > 1), "boost smoke trails behind the car");
 			}
+			if (ctx.computeOnClient(mc -> RlFx.extracted()) && fast.has(RlCarNative.FLAG_SUPERSONIC)) {
+				int n = ctx.computeOnClient(mc -> RlFx.particles());
+				check(n > 0, "supersonic streaks and wheel trails (" + n + " particles)");
+			}
+			if (ctx.computeOnClient(mc -> RlAudio.extracted() && RlAudio.ready())) {
+				int voices = ctx.computeOnClient(mc -> RlAudio.voices());
+				check(voices >= 4, "boost and supersonic sounds join the engine (" + voices + " voices)");
+			}
 			ctx.runOnClient(mc -> mc.gui.hud.toggle()); // hide the HUD (F1) to see the trail
 			shot(ctx, "2b-boost-trail");
 			ctx.runOnClient(mc -> mc.gui.hud.toggle());
@@ -128,6 +145,10 @@ public class CarClientGameTest implements FabricClientGameTest {
 			ctx.waitTicks(8);
 			CarPose air = pose(ctx);
 			shot(ctx, "3-jump");
+			if (ctx.computeOnClient(mc -> RlFx.extracted())) {
+				int n = ctx.computeOnClient(mc -> RlFx.particles());
+				check(n > 0, "jump smoke (" + n + " particles)");
+			}
 			check(!air.has(RlCarNative.FLAG_ON_GROUND) && air.y - start.getY() > 0.8, "in the air after a jump: height " + (air.y - start.getY()));
 			ctx.waitTicks(30);
 			check(pose(ctx).has(RlCarNative.FLAG_ON_GROUND), "landed");

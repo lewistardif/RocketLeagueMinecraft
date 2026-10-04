@@ -13,6 +13,7 @@ public final class NativeCar implements AutoCloseable {
 	private final Cleaner.Cleanable cleanable;
 	private final MemorySegment pose = Arena.ofAuto().allocate(JAVA_FLOAT, RlCarNative.POSE_FLOATS);
 	private final MemorySegment vec3 = Arena.ofAuto().allocate(JAVA_FLOAT, 3);
+	private final MemorySegment contacts = Arena.ofAuto().allocate(JAVA_FLOAT, RlCarNative.CONTACT_FLOATS);
 
 	public NativeCar(int preset) {
 		try {
@@ -80,6 +81,18 @@ public final class NativeCar implements AutoCloseable {
 			throw RlCarNative.rethrow(t);
 		}
 		MemorySegment.copy(this.pose, JAVA_FLOAT, 0, out, 0, RlCarNative.POSE_FLOATS);
+		return flags;
+	}
+
+	/** Writes the current tick's contacts ({@link RlCarNative#CONTACT_FLOATS} floats, RL space) into {@code out}; returns the contact flags. */
+	public int contacts(float[] out) {
+		int flags;
+		try {
+			flags = (int) RlCarNative.CAR_CONTACTS.invokeExact(this.handle, this.contacts);
+		} catch (Throwable t) {
+			throw RlCarNative.rethrow(t);
+		}
+		MemorySegment.copy(this.contacts, JAVA_FLOAT, 0, out, 0, RlCarNative.CONTACT_FLOATS);
 		return flags;
 	}
 

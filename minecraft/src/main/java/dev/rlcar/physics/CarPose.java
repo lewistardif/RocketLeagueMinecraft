@@ -27,6 +27,16 @@ public final class CarPose {
 	public float boost;
 	/** Forward speed, uu/s (negative when reversing). */
 	public float forwardSpeed;
+	/** Velocity (uu/s) and angular velocity (rad/s), Rocket League axes (X, Y, Z up). */
+	public final float[] velocity = new float[3];
+	public final float[] angularVelocity = new float[3];
+	/**
+	 * What the car touches, Rocket League axes: the body's contact normal (0..3), then each wheel's
+	 * (3..15, FR, FL, BR, BL); zero when not touching. See {@link RlCarNative#CONTACT_FLOATS}.
+	 */
+	public final float[] contacts = new float[RlCarNative.CONTACT_FLOATS];
+	/** {@link RlCarNative}{@code .CONTACT_*} bits: jumped, double jumped, flipped, body contact, boost held. */
+	public int contactFlags;
 
 	public static final StreamCodec<ByteBuf, CarPose> STREAM_CODEC = StreamCodec.of(CarPose::write, CarPose::read);
 
@@ -36,6 +46,10 @@ public final class CarPose {
 
 	public boolean has(int flag) {
 		return (this.flags & flag) != 0;
+	}
+
+	public boolean hasContact(int flag) {
+		return (this.contactFlags & flag) != 0;
 	}
 
 	/** Model-space +X (car forward) in world space. */
@@ -48,7 +62,11 @@ public final class CarPose {
 	}
 
 	/** Fills this pose from {@code rl} (the native pose buffer) for a car whose origin is {@code origin}. */
-	public CarPose setFromNative(BlockPos origin, float[] rl, int flags) {
+	public CarPose setFromNative(BlockPos origin, float[] rl, int flags, float[] contacts, int contactFlags) {
+		System.arraycopy(rl, 12, this.velocity, 0, 3);
+		System.arraycopy(rl, 15, this.angularVelocity, 0, 3);
+		System.arraycopy(contacts, 0, this.contacts, 0, RlCarNative.CONTACT_FLOATS);
+		this.contactFlags = contactFlags;
 		Vec3 p = Space.toMc(origin, rl[0], rl[1], rl[2]);
 		this.x = p.x;
 		this.y = p.y;
@@ -86,6 +104,10 @@ public final class CarPose {
 		this.flags = o.flags;
 		this.boost = o.boost;
 		this.forwardSpeed = o.forwardSpeed;
+		System.arraycopy(o.velocity, 0, this.velocity, 0, 3);
+		System.arraycopy(o.angularVelocity, 0, this.angularVelocity, 0, 3);
+		System.arraycopy(o.contacts, 0, this.contacts, 0, RlCarNative.CONTACT_FLOATS);
+		this.contactFlags = o.contactFlags;
 	}
 
 	/** {@code a} blended towards {@code b} by {@code t} (0..1); flags and boost come from {@code b}. */
@@ -102,6 +124,10 @@ public final class CarPose {
 			out.steer[i] = a.steer[i] + (b.steer[i] - a.steer[i]) * t;
 		}
 		out.forwardSpeed = a.forwardSpeed + (b.forwardSpeed - a.forwardSpeed) * t;
+		for (int i = 0; i < 3; i++) {
+			out.velocity[i] = a.velocity[i] + (b.velocity[i] - a.velocity[i]) * t;
+			out.angularVelocity[i] = a.angularVelocity[i] + (b.angularVelocity[i] - a.angularVelocity[i]) * t;
+		}
 		return out;
 	}
 
@@ -125,6 +151,16 @@ public final class CarPose {
 		buf.writeInt(p.flags);
 		buf.writeFloat(p.boost);
 		buf.writeFloat(p.forwardSpeed);
+		for (float f : p.velocity) {
+			buf.writeFloat(f);
+		}
+		for (float f : p.angularVelocity) {
+			buf.writeFloat(f);
+		}
+		for (float f : p.contacts) {
+			buf.writeFloat(f);
+		}
+		buf.writeInt(p.contactFlags);
 	}
 
 	private static CarPose read(ByteBuf buf) {
@@ -145,6 +181,16 @@ public final class CarPose {
 		p.flags = buf.readInt();
 		p.boost = buf.readFloat();
 		p.forwardSpeed = buf.readFloat();
+		for (int i = 0; i < 3; i++) {
+			p.velocity[i] = buf.readFloat();
+		}
+		for (int i = 0; i < 3; i++) {
+			p.angularVelocity[i] = buf.readFloat();
+		}
+		for (int i = 0; i < RlCarNative.CONTACT_FLOATS; i++) {
+			p.contacts[i] = buf.readFloat();
+		}
+		p.contactFlags = buf.readInt();
 		return p;
 	}
 }

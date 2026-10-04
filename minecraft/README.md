@@ -41,7 +41,7 @@ shimmer at a distance.
 
 The cars and the wheels are drawn with Rocket League's own material shaders, decompiled from the
 game's shader cache (`RefShaderCache-PC-D3D-SM5.upk`, the base pass pixel shaders of
-`Body_Paintable_Mat`, `MasterChassis_MAT` and `Wheel_Master_Mat`) and translated instruction by
+`Body_Paintable_Mat`, the chassis materials and `Wheel_Master_Mat`) and translated instruction by
 instruction to GLSL (`src/client/resources/assets/rlcar/shaders/core/rl_body.fsh`,
 `rl_chassis.fsh`, `rl_wheel.fsh`):
 
@@ -53,8 +53,14 @@ instruction to GLSL (`src/client/resources/assets/rlcar/shaders/core/rl_body.fsh
   trim colour with the game's Fresnel rim, so the glass brightens at grazing angles. The shader's
   tertiary (carbon) layer is masked by the body mask's alpha; none of the seven default bodies has
   one, so it stays off, as in the game.
-- **Chassis**: head and tail lights glow in their colours and get brighter with distance, as in
-  the game. Metal parts reflect through the same ramp.
+- **Chassis**: three base materials, each ported from its own shader: `MasterChassis_MAT`
+  (Octane, Hybrid, Merc, Plank), `MAT_Chassis_Paintable` (Breakout) and the Dominus'
+  `MAT_BANDAID_Chassis_Paintable` (Fresnel trims). Normal map plus a tiled brushed-metal detail,
+  a swirl or cube reflection, a sharp highlight; tail lights, headlights and the boost glow come
+  from the masks' red, green and blue where its alpha is set. The boost glow's intensity is raised
+  by native game code while boosting; here it keeps the material's value (off). The Psyclops'
+  `GoodChassis_Painted_Mat` cannot be read from the shader cache and is drawn with the
+  `MasterChassis_MAT` port.
 - **Wheels**: brushed-metal rims with a swirling reflection and a sharp highlight, and rubber tyres.
 
 The game's lights are replaced by Minecraft's: the sun (or the moon at night) is the key light,
@@ -73,6 +79,28 @@ and smoke trail, as in the Bevy demo (shaders in `src/client/resources/assets/rl
 Without it, and on the box car, boosting shows a simple flickering flame. The boost material's
 parameters are compiled into the shader when the game starts, so a re-extracted boost needs a
 restart.
+
+#### Sounds and effects
+
+With the sounds and effects extracted (`audio/`, `fx/`; see the root README, the sounds need
+`--wwiser` and `--vgmstream`), every car sounds and looks like the Bevy demo's, from the same data
+and ports of the same code (`RlAudio`, `RlFx`):
+
+- **Sounds**: engine and exhaust (pitched by a reconstructed RPM), tyres, jump, double jump, dodge,
+  the in-air whoosh (your own car only, as in the game), wheel landings, body impacts and slides,
+  supersonic, the boost loop and tail, the empty-tank dry fire. They are played by a small Wwise
+  graph player straight through OpenAL on Minecraft's context, so the engine's pitch range and
+  frame-rate updates survive. Your car is heard as in the game; other cars are positioned and fade
+  out by 64 blocks. The volume follows the *Players* slider. `-Drlcar.audioLog` logs the driven
+  car's parameters and voices.
+- **Effects**: jump smoke, double jump and dodge smoke and ribbons, supersonic speed streaks (your
+  own car, as in the game) and wheel trails, impact sparks, simulated from the extracted particle
+  systems and drawn with ports of their shaders (`rl_fx.fsh`).
+- **Camera shakes**: jump, double jump, dodge, landing, impacts and boost shake the car camera.
+  Gamepad rumble is not played (GLFW has no rumble).
+
+They need the extended car state of `rl_car_ffi`'s `rlcar_car_contacts` (velocity, wheel and body
+contacts, jump/flip flags), sent with every car pose so other players' cars play them too.
 
 ### Playing
 
@@ -243,7 +271,8 @@ then respawns. It ends with a row of all 7 bodies, and saves screenshots to
   development); multiplayer with several real clients (ball lending between two drivers in
   particular) (the client↔server packets were exercised
   in singleplayer, which uses the same network code); macOS and Linux builds.
-* No sounds, and no effects besides the boost (no supersonic trail, jump or landing effects).
+* No Wwise filters or Rocket League's own 3D attenuation curves for the sounds, no jump distortion
+  sphere, no boost glow on the chassis, no gamepad rumble (see *Sounds and effects*).
 * Each car is re-sent to the GPU every frame (about 28k triangles for a body). That is fine for a
   handful of cars; many more would need cached vertex buffers.
 
