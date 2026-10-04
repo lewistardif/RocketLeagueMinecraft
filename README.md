@@ -88,9 +88,9 @@ quarter-pipe, back wall, ceiling), saves four screenshots to `<dir>` and exits.
 
 ### The camera
 
-The camera is Rocket League's own car camera, rebuilt from the game's camera script
-(`CameraState_Car_TA` and `Camera_TA` in `TAGame.upk`) and the tuned values of its camera
-archetypes, in [`crates/rl_car_core/src/camera.rs`](crates/rl_car_core/src/camera.rs). It is
+The camera is Rocket League's own car camera and ball cam, rebuilt from the game's camera script
+(`CameraState_Car_TA`, `CameraState_BallCam_TA` and `Camera_TA` in `TAGame.upk`,
+`CameraStateBlender_X` in `ProjectX.upk`) and the tuned values of its camera archetypes, in [`crates/rl_car_core/src/camera.rs`](crates/rl_car_core/src/camera.rs). It is
 engine-agnostic (Rocket League space, no dependencies); the Bevy demo and the Minecraft mod both
 use it.
 
@@ -105,11 +105,17 @@ use it.
 - **Swivel**: the right stick orbits it around the car, up to 123° to each side (99° at 2500 uu/s
   and above), 30° up and 49° down. It eases there at the Swivel Speed setting and comes back twice
   as fast. Rear Camera turns it 180°.
+- **Ball cam** (hosts with a ball) turns towards the ball from exactly Height above the car, with
+  no lag. While the ball is within 22° of level it keeps the Angle setting and only turns; from
+  22° to 44° it eases into the ball's pitch and then follows 80% of it, raising its focus a
+  little the steeper the ball. Rear Camera in ball cam is the car camera turned around.
+  Switching either way eases out the difference over 0.5 s at Transition Speed 1, down to a cut
+  at 2.
 - **Settings**: Rocket League's FOV (horizontal, at 16:9), Distance, Height, Angle, Stiffness,
-  Swivel Speed and Invert Swivel Pitch, with the game's ranges and presets.
+  Swivel Speed, Transition Speed and Invert Swivel Pitch, with the game's ranges and presets.
 
-Not included: ball cam and free look (there is no ball to target), camera shake, and the bob from
-the car body's visual suspension. Like the game, the camera only keeps 10 uu above the floor and
+Not included: free look, camera shake, and the bob from the car body's visual suspension. The Bevy
+demo has no ball, so it only shows the car camera. Like the game, the camera only keeps 10 uu above the floor and
 can see through walls.
 
 ### Real Rocket League car models and boost (optional)
@@ -240,7 +246,6 @@ the yaw sign: steering right in the core turns the car to its right in Bevy.
 
 - **Out of scope:** contacts between two simulated cars, boost pads, teams and scoring. Rocket
   League's bump and demolition rule is available (`bump`) for hosts to apply to their own entities.
-- Ball cam is presentation only and was not ported from the game's camera script.
 - The real arena meshes are game assets and are not included. The demo arena is a soccar-sized box
   with procedurally built quarter-pipes and ramps. Bullet's convex-vs-mesh behaviour (one new point
   per *triangle* per tick) is approximated as one point per *collider* by the avian host.
