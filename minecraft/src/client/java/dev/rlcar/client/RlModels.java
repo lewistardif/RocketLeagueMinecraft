@@ -39,8 +39,10 @@ import org.jspecify.annotations.Nullable;
  * </ol>
  *
  * <p>The models use the mod's car model frame directly (+X forward, +Y up, +Z right, blocks =
- * metres, origin at the centre of mass), exactly as in the Bevy demo. Only the base colour
- * textures are used. Without the files, {@link CarRenderer} draws a simple box car instead.
+ * metres, origin at the centre of mass), exactly as in the Bevy demo. The cars and the wheel are
+ * drawn with ports of the game's material shaders ({@link RlShading}) when the extraction has
+ * their inputs, otherwise with the base colour textures. Without the files, {@link CarRenderer}
+ * draws a simple box car instead.
  */
 public final class RlModels {
 	/** Radius of the exported wheel mesh ({@code WHEEL_Star_SM}), blocks. */
@@ -49,8 +51,9 @@ public final class RlModels {
 	/**
 	 * One textured triangle list. Triangles are drawn as quads with a repeated last vertex.
 	 * {@code uvs1} is the second UV set (a copy of the first when the mesh has only one).
+	 * {@code material} is the glTF material's name (the game's material instance).
 	 */
-	public record Part(Identifier texture, float[] positions, float[] normals, float[] uvs, float[] uvs1, int[] triangles) {
+	public record Part(String material, Identifier texture, float[] positions, float[] normals, float[] uvs, float[] uvs1, int[] triangles) {
 	}
 
 	public record Model(List<Part> parts) {
@@ -167,8 +170,11 @@ public final class RlModels {
 				float[] uv = attr.has("TEXCOORD_0") ? floats(g, buffers, attr.get("TEXCOORD_0").getAsInt(), 2) : new float[pos.length / 3 * 2];
 				float[] uv1 = attr.has("TEXCOORD_1") ? floats(g, buffers, attr.get("TEXCOORD_1").getAsInt(), 2) : uv;
 				int[] tris = prim.has("indices") ? ints(g, buffers, prim.get("indices").getAsInt()) : sequence(pos.length / 3);
-				Identifier tex = baseColor(g, dir, prim.has("material") ? prim.get("material").getAsInt() : -1);
-				parts.add(new Part(tex, pos, nrm, uv, uv1, tris));
+				int material = prim.has("material") ? prim.get("material").getAsInt() : -1;
+				Identifier tex = baseColor(g, dir, material);
+				JsonObject mat = material >= 0 ? g.getAsJsonArray("materials").get(material).getAsJsonObject() : null;
+				String name = mat != null && mat.has("name") ? mat.get("name").getAsString() : "";
+				parts.add(new Part(name, tex, pos, nrm, uv, uv1, tris));
 			}
 		}
 		return new Model(parts);
@@ -264,7 +270,8 @@ public final class RlModels {
 		MipmappedTexture(String label, NativeImage base) {
 			List<NativeImage> levels = new ArrayList<>();
 			levels.add(base);
-			while (levels.getLast().getWidth() > 1 || levels.getLast().getHeight() > 1) {
+			// Down to 1 texel on the short side (a longer chain does not fit non-square textures).
+			while (levels.getLast().getWidth() > 1 && levels.getLast().getHeight() > 1) {
 				levels.add(halve(levels.getLast()));
 			}
 			GpuDevice device = RenderSystem.getDevice();

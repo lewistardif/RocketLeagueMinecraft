@@ -21,7 +21,9 @@ import org.joml.Quaternionf;
 
 /**
  * Draws a car at its simulated pose: the real Rocket League body and wheels when the extracted
- * models are available ({@link RlModels}), otherwise a plain box car sized from the hitbox.
+ * models are available ({@link RlModels}), with ports of the game's car material shaders
+ * ({@link RlShading}) when their inputs were extracted too, otherwise a plain box car sized from
+ * the hitbox.
  *
  * <p>Model space is +X forward, +Y up, +Z right, origin at the centre of mass. Wheels hang at the
  * simulated suspension length, steer, and roll with the car's speed, like in the Bevy demo.
@@ -114,7 +116,10 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		RlModels.Model wheel = RlModels.wheel();
 		float[][] anchors = RlModels.anchors(state.preset);
 		if (body != null && wheel != null && anchors != null) {
-			submitModel(collector, poseStack, body, state.lightCoords);
+			boolean orange = state.color == CarEntity.ORANGE;
+			if (!RlShading.submit(collector, poseStack, body, "cars/" + RlCarNative.PRESETS[state.preset], orange, state.lightCoords)) {
+				submitModel(collector, poseStack, body, state.lightCoords);
+			}
 			for (int i = 0; i < 4; i++) {
 				boolean front = i < 2;
 				boolean left = i % 2 == 1;
@@ -129,7 +134,9 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 					// The mesh's outer face is +Z; turn left wheels around so it faces outwards.
 					poseStack.rotate(new Quaternionf().rotationY(Mth.PI));
 				}
-				submitModel(collector, poseStack, wheel, state.lightCoords);
+				if (!RlShading.submit(collector, poseStack, wheel, "wheel", orange, state.lightCoords)) {
+					submitModel(collector, poseStack, wheel, state.lightCoords);
+				}
 				poseStack.popPose();
 			}
 		} else {
