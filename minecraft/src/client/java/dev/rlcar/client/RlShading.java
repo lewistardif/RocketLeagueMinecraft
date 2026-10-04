@@ -45,7 +45,8 @@ import org.jspecify.annotations.Nullable;
  * the game's shader cache: the body paint ({@code Body_Paintable_Mat}, with its windows, trims
  * and team colours), the chassis ({@code MasterChassis_MAT}, with the head and tail lights) and
  * the wheels ({@code Wheel_Master_Mat}). The shaders are in
- * {@code assets/rlcar/shaders/core/rl_*.fsh}; their inputs (the unbaked textures and each
+ * {@code assets/rlcar/shaders/core/rl_*.fsh} (the chassis in its three variants: {@code MasterChassis_MAT},
+ * {@code MAT_Chassis_Paintable} and the Dominus' {@code MAT_BANDAID_Chassis_Paintable}); their inputs (the unbaked textures and each
  * material instance's parameter values) are written next to the models by
  * {@code tools/rl_assets/extract.py} as {@code materials.json} and {@code shading/}.
  *
@@ -60,7 +61,7 @@ import org.jspecify.annotations.Nullable;
 public final class RlShading {
 	private enum Kind {
 		BODY("core/rl_body", new String[] {"TertiaryNormalMap", "BodyMaskMap", "DiffuseMap", "SkinMap", "PartsNormalMap", "Detail1Map", "Detail2Map", "LightRampMap", "CurvatureMap", "EnvPackMap"}),
-		CHASSIS("core/rl_chassis", new String[] {"LightRampMap", "DiffuseMap", "MasksMap"}),
+		CHASSIS("core/rl_chassis", new String[] {"NormalMap", "DetailMap", "DiffuseMap", "SwirlMap", "MasksMap"}),
 		WHEEL("core/rl_wheel", new String[] {"RimNormalMap", "RimAddNormalMap", "TireNormalMap", "SwirlMap", "RimDiffuseMap", "TireDiffuseMap", "TireMaskMap"}),
 		GLASS("core/rl_glass", new String[0]),
 		BASIC("core/rl_basic", new String[] {"BaseMap"});
@@ -75,7 +76,7 @@ public final class RlShading {
 	}
 
 	/** One material instance of a model, as {@code materials.json} describes it. */
-	private record Material(Kind kind, Map<String, Path> textures, Map<String, float[]> params) {
+	private record Material(Kind kind, String base, Map<String, Path> textures, Map<String, float[]> params) {
 	}
 
 	/** The materials of one model folder ({@code cars/<preset>} or {@code wheel}) and the team colours. */
@@ -132,13 +133,17 @@ public final class RlShading {
 			textures.put("@flat", shared.resolve("flat_normal.png"));
 			textures.put("@flat_xa", shared.resolve("flat_normal_xa.png"));
 			textures.put("@black", shared.resolve("black.png"));
+			// The chassis' tiled detail normal (written by newer extractions).
+			Path detail = shared.resolve("BrushedMetal_Normal.png");
+			textures.put("@detail", Files.isRegularFile(detail) ? detail : shared.resolve("flat_normal_xa.png"));
 			Map<String, float[]> params = new HashMap<>();
 			if (m.has("params")) {
 				for (Map.Entry<String, JsonElement> p : m.getAsJsonObject("params").entrySet()) {
 					params.put(p.getKey(), floats(p.getValue()));
 				}
 			}
-			materials.put(e.getKey(), new Material(kind, textures, params));
+			String base = m.has("base") ? m.get("base").getAsString() : "";
+			materials.put(e.getKey(), new Material(kind, base, textures, params));
 		}
 		Map<String, float[]> teams = new HashMap<>();
 		if (j.has("teams")) {
@@ -194,6 +199,10 @@ public final class RlShading {
 					.withColorTargetState(ColorTargetState.DEFAULT)
 					.withCull(false);
 				defines(b, m, f, team);
+				String debug = System.getProperty("rlcar.shadingDebug");
+				if (debug != null) {
+					b.withShaderDefine("RL_DEBUG_" + debug.trim());
+				}
 				PIPELINES.put(key, RenderPipelines.register(b.build()));
 			}
 		}
@@ -234,10 +243,27 @@ public final class RlShading {
 				vec(b, 70, new float[] {0, 0, scalar(p, "F2Type", 0) * 0.03125F, scalar(p, "TertiaryMaterial_Type", 2.0F)});
 			}
 			case CHASSIS -> {
-				vec(b, 59, p.get("TailLightColor"));
-				vec(b, 60, p.get("HeadlightColor"));
-				vec(b, 61, p.get("BoostGlowColor"));
+				// The defaults are each base material's own (from the shader cache).
+				boolean bandaid = m.base.equals("MAT_BANDAID_Chassis_Paintable");
+				// The Psyclops' GoodChassis_Painted_Mat (its shader map is not readable) has the
+				// MasterChassis textures without the swirl: drawn as MasterChassis with no reflection.
+				boolean paintable = bandaid || m.base.equals("MAT_Chassis_Paintable");
+				if (paintable) {
+					b.withShaderDefine("PAINTABLE");
+				}
+				if (bandaid) {
+					b.withShaderDefine("BANDAID");
+				}
+				vec(b, 58, p.getOrDefault("TailLightColor", new float[] {3.0F, 0.090688F, 0, 1}));
+				vec(b, 59, p.getOrDefault("HeadlightColor", new float[] {3.0F, 2.901746F, 2.747269F, 1}));
+				vec(b, 60, p.getOrDefault("BoostGlowColor", new float[] {3.0F, 0.132566F, 0, 1}));
+				vec(b, 61, p.getOrDefault("TrimColor", bandaid ? new float[] {0.14F, 0.14F, 0.14F, 1} : new float[] {0.197516F, 0.013102F, 0.013102F, 0}));
 				b.withShaderDefine("BRAKE", scalar(p, "Brake", 0));
+				b.withShaderDefine("TAIL_BRIGHTNESS", scalar(p, "TailLightBrightness", 5.0F));
+				b.withShaderDefine("HEAD_BRIGHTNESS", scalar(p, "HeadlightBrightness", paintable ? 0.0F : 3.0F));
+				b.withShaderDefine("GLOW_BRIGHTNESS", scalar(p, "BoostGlowBrightness", 5.0F));
+				b.withShaderDefine("GLOW_INTENSITY", scalar(p, "BoostGlowIntensity", 0.0F));
+				b.withShaderDefine("TRIM_EMISSIVE", scalar(p, "TrimEmissive", 0.0F));
 			}
 			case WHEEL -> {
 				float power = scalar(p, "Rim_AdditionalNormal_Power", 1.0F);
@@ -294,8 +320,10 @@ public final class RlShading {
 						bind(setup, "EnvPackMap", m, "@env", "@env", true);
 					}
 					case CHASSIS -> {
-						bind(setup, "LightRampMap", m, "@lut", "@lut", false);
+						bind(setup, "NormalMap", m, "Normal", "@flat_xa", true);
+						bind(setup, "DetailMap", m, "@detail", "@detail", true);
 						bind(setup, "DiffuseMap", m, "Diffuse", "@black", true);
+						bind(setup, "SwirlMap", m, m.base.equals("GoodChassis_Painted_Mat") ? "@black" : "@swirl", "@swirl", true);
 						bind(setup, "MasksMap", m, "Masks", "@black", true);
 					}
 					case WHEEL -> {

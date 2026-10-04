@@ -78,7 +78,7 @@ public final class RlBoost {
 	// ----------------------------------------------------------------------------- data
 
 	/** A cooked UE3 distribution: a lookup table sampled like {@code FRawDistribution::GetValue}, or a uniform random range. */
-	private record Dist(float @Nullable [] table, boolean random, int chunk, float timeScale, float startTime, int dim, float @Nullable [] min, float @Nullable [] max) {
+	record Dist(float @Nullable [] table, boolean random, int chunk, float timeScale, float startTime, int dim, float @Nullable [] min, float @Nullable [] max) {
 		static @Nullable Dist of(@Nullable JsonElement e) {
 			if (e == null || !e.isJsonObject()) {
 				return null;
@@ -352,7 +352,7 @@ public final class RlBoost {
 	// ----------------------------------------------------------------------------- particles
 
 	/** Small xorshift generator (particles only need cheap uniform randoms). */
-	private static final class Rng {
+	static final class Rng {
 		private int s = 0x9E3779B9;
 
 		float next() {

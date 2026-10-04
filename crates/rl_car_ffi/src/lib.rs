@@ -485,6 +485,67 @@ pub fn write_pose(a: &CarState, b: &CarState, alpha: f32, out: &mut [f32]) -> u3
     f
 }
 
+/// Floats written by [`rlcar_car_contacts`]:
+///
+/// | index | content |
+/// |---|---|
+/// | 0..3 | normal of the surface the body touches (world space), or zero |
+/// | 3..15 | per wheel FR, FL, BR, BL: normal of the surface it touches (world space), or zero |
+pub const CONTACT_FLOATS: usize = 15;
+
+/// Bits returned by [`rlcar_car_contacts`]: what the car's sounds and effects react to.
+pub mod contact_flags {
+    pub const HAS_JUMPED: u32 = 1 << 0;
+    pub const HAS_DOUBLE_JUMPED: u32 = 1 << 1;
+    pub const HAS_FLIPPED: u32 = 1 << 2;
+    /// The body touches the world (the normal is in floats 0..3).
+    pub const WORLD_CONTACT: u32 = 1 << 3;
+    /// The boost button is held (the empty tank "dry fire" plays when it is pressed at 0 boost).
+    pub const BOOST_HELD: u32 = 1 << 4;
+}
+
+/// Writes [`CONTACT_FLOATS`] floats about the car's current tick (its contacts with the world)
+/// and returns its [`contact_flags`]. Added after ABI 5 without changing any existing layout.
+///
+/// # Safety
+/// `car` as above; `out` points to [`CONTACT_FLOATS`] writable floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_car_contacts(car: *const Car, out: *mut f32) -> u32 {
+    let Some(c) = (unsafe { car.as_ref() }) else { return 0 };
+    if out.is_null() {
+        return 0;
+    }
+    let out = unsafe { std::slice::from_raw_parts_mut(out, CONTACT_FLOATS) };
+    guard(0, || write_contacts(&c.stepper.current, out))
+}
+
+pub fn write_contacts(s: &CarState, out: &mut [f32]) -> u32 {
+    out.fill(0.0);
+    let mut f = 0;
+    if let Some(n) = s.world_contact_normal {
+        out[0..3].copy_from_slice(&n.to_array());
+        f |= contact_flags::WORLD_CONTACT;
+    }
+    for i in 0..4 {
+        if s.wheel_contacts[i]
+            && let Some((_, n)) = s.wheels[i].contact
+        {
+            out[3 + i * 3..6 + i * 3].copy_from_slice(&n.to_array());
+        }
+    }
+    for (bit, on) in [
+        (contact_flags::HAS_JUMPED, s.has_jumped),
+        (contact_flags::HAS_DOUBLE_JUMPED, s.has_double_jumped),
+        (contact_flags::HAS_FLIPPED, s.has_flipped),
+        (contact_flags::BOOST_HELD, s.last_controls.boost),
+    ] {
+        if on {
+            f |= bit;
+        }
+    }
+    f
+}
+
 /// Normalised lerp along the shorter arc (ticks are 1/120 s apart, so this is as good as slerp).
 fn nlerp(a: Quat, b: Quat, t: f32) -> Quat {
     let dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
@@ -799,6 +860,36 @@ mod tests {
             // Null handles are harmless.
             rlcar_car_step(std::ptr::null_mut(), std::ptr::null(), 1, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
             assert_eq!(rlcar_car_pose(std::ptr::null(), 0.0, pose.as_mut_ptr()), 0);
+        }
+    }
+
+    #[test]
+    fn c_api_reports_contacts_and_jumps() {
+        unsafe {
+            let w = rlcar_world_new();
+            let boxes = block_floor_boxes(20);
+            rlcar_world_set_boxes(w, boxes.as_ptr(), (boxes.len() / 6) as u32);
+            let car = rlcar_car_new(0);
+            rlcar_car_reset(car, [0.0f32, 0.0, 60.0].as_ptr(), 0.0, 0.0, 0.0);
+            rlcar_car_step(car, w, 120, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
+            let mut c = [0.0f32; CONTACT_FLOATS];
+            let f = rlcar_car_contacts(car, c.as_mut_ptr());
+            assert_eq!(f & (contact_flags::HAS_JUMPED | contact_flags::WORLD_CONTACT), 0, "flags {f:b}");
+            for i in 0..4 {
+                assert!(c[5 + i * 3] > 0.99, "wheel {i} stands on the floor: {:?}", &c[3 + i * 3..6 + i * 3]);
+            }
+            // Jump with boost held: in the air, jumped, wheels off the ground.
+            rlcar_car_step(car, w, 12, 0.0, 0.0, 0.0, 0.0, 0.0, buttons::JUMP | buttons::BOOST);
+            let f = rlcar_car_contacts(car, c.as_mut_ptr());
+            assert!(f & contact_flags::HAS_JUMPED != 0 && f & contact_flags::BOOST_HELD != 0, "flags {f:b}");
+            assert!(c[3..].iter().all(|&v| v == 0.0));
+            // Dodge: flipped.
+            rlcar_car_step(car, w, 4, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
+            rlcar_car_step(car, w, 2, 0.0, 0.0, -1.0, 0.0, 0.0, buttons::JUMP);
+            assert!(rlcar_car_contacts(car, c.as_mut_ptr()) & contact_flags::HAS_FLIPPED != 0);
+            assert_eq!(rlcar_car_contacts(std::ptr::null(), c.as_mut_ptr()), 0);
+            rlcar_car_free(car);
+            rlcar_world_free(w);
         }
     }
 

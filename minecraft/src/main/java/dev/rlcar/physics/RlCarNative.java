@@ -57,6 +57,13 @@ public final class RlCarNative {
 	public static final int FLAG_JUMPING = 1 << 5;
 	public static final int FLAG_THROTTLING = 1 << 6;
 	public static final int FLAG_WHEEL_CONTACT_SHIFT = 8;
+	/** Floats written by {@code rlcar_car_contacts}: body contact normal, then each wheel's. */
+	public static final int CONTACT_FLOATS = 15;
+	public static final int CONTACT_HAS_JUMPED = 1;
+	public static final int CONTACT_HAS_DOUBLE_JUMPED = 1 << 1;
+	public static final int CONTACT_HAS_FLIPPED = 1 << 2;
+	public static final int CONTACT_WORLD = 1 << 3;
+	public static final int CONTACT_BOOST_HELD = 1 << 4;
 
 	public static final int BUTTON_JUMP = 1;
 	public static final int BUTTON_BOOST = 1 << 1;
@@ -76,6 +83,7 @@ public final class RlCarNative {
 	static final MethodHandle CAR_ADVANCE;
 	static final MethodHandle CAR_ALPHA;
 	static final MethodHandle CAR_POSE;
+	static final MethodHandle CAR_CONTACTS;
 	static final MethodHandle CAR_SAVE;
 	static final MethodHandle CAR_LOAD;
 	static final MethodHandle CAR_PRESET;
@@ -127,6 +135,7 @@ public final class RlCarNative {
 			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_DOUBLE, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT));
 		CAR_ALPHA = bind(linker, lib, "rlcar_car_alpha", FunctionDescriptor.of(JAVA_FLOAT, ADDRESS));
 		CAR_POSE = bind(linker, lib, "rlcar_car_pose", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_FLOAT, ADDRESS));
+		CAR_CONTACTS = bind(linker, lib, "rlcar_car_contacts", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
 		CAR_SAVE = bind(linker, lib, "rlcar_car_save", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 		CAR_LOAD = bind(linker, lib, "rlcar_car_load", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 		CAR_PRESET = bind(linker, lib, "rlcar_car_preset", FunctionDescriptor.of(JAVA_INT, ADDRESS));

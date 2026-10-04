@@ -101,7 +101,18 @@ void main() {
     vec3 normalWorld = toWorld(e, r1.xyz);
     vec3 color = skyLight(e, r0.xyz, dot(normalize(v6), r1.xyz));
     color = r0.xyz * max(shIrradiance(e, normalWorld), 0.0) + color;
-    color = r2.xyz * e.lightColor + color;
+    vec3 dbgDirect = r2.xyz * e.lightColor;
+    color = dbgDirect + color;
     color = r0.xyz * ambientColor(e) + color;
+#if defined(RL_DEBUG_1)
+    fragColor = rlFinish(r0.xyz);
+#elif defined(RL_DEBUG_2)
+    fragColor = rlFinish(dbgDirect);
+#elif defined(RL_DEBUG_3)
+    fragColor = rlFinish(color - dbgDirect);
+#elif defined(RL_DEBUG_4)
+    fragColor = rlFinish(vec3(0.0));
+#else
     fragColor = rlFinish(color);
+#endif
 }

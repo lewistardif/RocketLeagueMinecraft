@@ -11,7 +11,8 @@ material's own textures, unbaked, and its parameter values; this module writes t
   wheel/materials.json           the same for the wheel
   shading/*.png                  textures shared by every car: the lighting ramp atlas
                                  (`LightFalloffArray`), the reflection pack (`ENVPack`), the default
-                                 tertiary normal and flat stand-ins for unset textures
+                                 tertiary normal, the chassis' brushed-metal detail normal, and flat
+                                 stand-ins for unset textures
 
 Parameter values follow the material instance chain (instance -> parent instances -> base
 material defaults), from UModel's `*.props.txt`. Static switches are not visible there; the port
@@ -32,6 +33,8 @@ BODY_BASE = "Body_Paintable_Mat"
 CHASSIS_BASES = {"MasterChassis_MAT", "MAT_Chassis_Paintable", "MAT_BANDAID_Chassis_Paintable", "GoodChassis_Painted_Mat"}
 WHEEL_BASE = "Wheel_Master_Mat"
 SHARED = {"LightFalloffArray": "lut", "ENVPack": "env", "CarbonFiber_Flipped_N": "tertiary_normal", "Swirls_D": "wheel_swirl"}
+# Shared when exported (the chassis' tiled detail normal); the mod stands in a flat normal otherwise.
+SHARED_OPTIONAL = {"BrushedMetal_Normal": "chassis_detail"}
 
 BODY_TEXTURES = ["Diffuse", "Skin", "CurvaturePack", "F1DetailNormal", "F2DetailNormal", "TertiaryMaterial_Normal"]
 BODY_OWN_ONLY = ["BodyMasks", "Normal"]  # used only when set below the base material
@@ -40,8 +43,11 @@ BODY_PARAMS = [
     "TertiaryMaterial_ControlA", "TertiaryMaterial_ControlB", "TertiaryMaterial_Color", "TertiaryNormalTiling",
     "F1Type", "F2Type", "TertiaryMaterial_Type",
 ]
-CHASSIS_TEXTURES = ["Diffuse", "Masks"]
-CHASSIS_PARAMS = ["TailLightColor", "HeadlightColor", "BoostGlowColor", "Brake"]
+CHASSIS_TEXTURES = ["Diffuse", "Masks", "Normal"]
+CHASSIS_PARAMS = [
+    "TailLightColor", "HeadlightColor", "BoostGlowColor", "TrimColor", "Brake", "TailLightBrightness", "HeadlightBrightness",
+    "BoostGlowBrightness", "BoostGlowIntensity", "TrimEmissive",
+]
 WHEEL_TEXTURES = ["RimDiffuse", "RimNormal", "Rim_AdditionalNormal", "TireDiffuse", "TireNormal", "RimRGB"]
 WHEEL_PARAMS = ["RimColor", "Rim_AdditionalNormal_Power", "ReflectionBrightness", "SpecIntensity", "SpecPower"]
 
@@ -140,6 +146,10 @@ class ShadingWriter:
             if src is None:
                 raise SystemExit(f"shading: texture {name} was not exported")
             shutil.copy2(src, self.shared / f"{name}.png")
+        for name in SHARED_OPTIONAL:
+            src = self.find(name)
+            if src is not None:
+                shutil.copy2(src, self.shared / f"{name}.png")
         flat = {
             "flat_normal": (128, 128, 255, 255),  # RGB normal map, alpha 1
             "flat_normal_xa": (255, 128, 255, 128),  # normal with X in alpha (UE3 swizzled)

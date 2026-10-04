@@ -147,6 +147,8 @@ reconstructed part (the game computes it natively from the engine profile). The 
 supersonic speed streaks and wheel trails, jump/dodge smoke and ribbons, impact sparks, camera
 shakes and rumble; their materials are ports of the game's compiled shaders (found with
 `tools/rl_assets/shader_cache.py`). `--audio-log` logs sound events/levels, `--slowmo 0.1` slows the clock.
+The Minecraft mod plays the same sounds and effects (Java ports of both; see
+[`minecraft/README.md`](minecraft/README.md#sounds-and-effects)).
 
 The placeholder box car (and a real car when the boost was not extracted) gets a simple flickering
 flame cone instead.

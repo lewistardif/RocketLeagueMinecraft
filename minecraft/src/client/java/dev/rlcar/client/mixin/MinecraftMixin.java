@@ -1,5 +1,6 @@
 package dev.rlcar.client.mixin;
 
+import dev.rlcar.client.CarEffects;
 import dev.rlcar.client.ClientDriving;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -22,6 +23,7 @@ public abstract class MinecraftMixin {
 	@Inject(method = "renderFrame", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GameRenderer;render()V"))
 	private void rlcar$frame(boolean advanceGameTime, CallbackInfo ci) {
 		ClientDriving.frame((Minecraft) (Object) this);
+		CarEffects.frame((Minecraft) (Object) this);
 	}
 
 	/**
