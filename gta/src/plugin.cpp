@@ -3,7 +3,9 @@
 #include "probe_world.h"
 #include "rlcar_ffi.h"
 #include "effects.h"
+#include "hid_pad.h"
 #include "interact.h"
+#include "model.h"
 #include "weapons.h"
 #include "settings.h"
 #include "space.h"
@@ -13,6 +15,7 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <vector>
 #include <xinput.h>
 
 bool gtaProbe(const space::Frame& frame, int flags, Entity ignore, const float* from, const float* to, ProbeHit& hit);
@@ -26,6 +29,16 @@ ffi::Api g_api{};
 bool g_apiOk = false;
 std::string g_apiError;
 Settings g_settings;
+rlm::Models g_models;
+bool g_modelsOk = false;
+std::vector<double> g_scratch;
+
+void drawPoly(const double* a, const double* b, const double* c, const int* rgb) {
+	if (g_settings.modelWinding != 2)
+		GRAPHICS::DRAW_POLY(float(a[0]), float(a[1]), float(a[2]), float(b[0]), float(b[1]), float(b[2]), float(c[0]), float(c[1]), float(c[2]), rgb[0], rgb[1], rgb[2], 255);
+	if (g_settings.modelWinding != 1)
+		GRAPHICS::DRAW_POLY(float(a[0]), float(a[1]), float(a[2]), float(c[0]), float(c[1]), float(c[2]), float(b[0]), float(b[1]), float(b[2]), rgb[0], rgb[1], rgb[2], 255);
+}
 
 void log(const char* fmt, ...) {
 	FILE* f = nullptr;
@@ -73,6 +86,8 @@ InputState readInput() {
 		s.pad.rt = g.bRightTrigger / 255.0f;
 		auto ax = [](SHORT v) { return v < 0 ? v / 32768.0f : v / 32767.0f; };
 		s.pad.lx = ax(g.sThumbLX), s.pad.ly = ax(g.sThumbLY), s.pad.rx = ax(g.sThumbRX), s.pad.ry = ax(g.sThumbRY);
+	} else {
+		hidpad::read(s.pad);
 	}
 	return s;
 }
@@ -157,8 +172,91 @@ struct RlCar {
 	Effects effects;
 	Weapons weapons;
 	float hitbox[6] = {};
+	float wheelSpin[4] = {}, wheelRate[4] = {};
+	bool modelHidden = false;
 
 	~RlCar() { destroy(); }
+
+	void hideGtaModels(bool hide) {
+		if (veh && ENTITY::DOES_ENTITY_EXIST(veh) && hide != modelHidden) ENTITY::SET_ENTITY_VISIBLE(veh, hide ? FALSE : TRUE, FALSE);
+		modelHidden = hide;
+		if (ballProp && ENTITY::DOES_ENTITY_EXIST(ballProp)) ENTITY::SET_ENTITY_VISIBLE(ballProp, hide && !g_models.ball.empty() ? FALSE : TRUE, FALSE);
+		if (hide && driving) NETWORK::SET_ENTITY_LOCALLY_INVISIBLE(PLAYER::PLAYER_PED_ID());
+	}
+
+	void drawModels(float dt) {
+		bool use = g_settings.models && g_modelsOk;
+		hideGtaModels(use);
+		if (!use) return;
+		Vector3 cg = CAMERA::GET_FINAL_RENDERED_CAM_COORD();
+		double cam[3] = {cg.x, cg.y, cg.z};
+		rlm::Light light;
+		light.ambient = g_settings.modelAmbient;
+		light.diffuse = g_settings.modelDiffuse;
+		light.brightness = g_settings.modelBrightness;
+		double k = frame.k();
+		const double d[3] = {1, -1, 1};
+		double base[3][3];
+		for (int i = 0; i < 3; i++)
+			for (int j = 0; j < 3; j++) base[i][j] = d[i] * pose[3 + 3 * j + i] * k;
+		space::V3 o = frame.toGta(pose);
+		double dist = std::sqrt((o.x - cam[0]) * (o.x - cam[0]) + (o.y - cam[1]) * (o.y - cam[1]) + (o.z - cam[2]) * (o.z - cam[2]));
+		bool onGround = (flags & ffi::flags::ON_GROUND) != 0;
+		if (dist < g_settings.modelMaxDistance) {
+			int lod = g_settings.modelDetail + int(dist / std::max(1.0f, g_settings.modelLodDistance));
+			if (const rlm::Mesh* body = rlm::Models::pick(g_models.body, lod)) {
+				rlm::Xform x;
+				for (int i = 0; i < 3; i++)
+					for (int j = 0; j < 3; j++) x.a[i][j] = base[i][j];
+				x.t[0] = o.x, x.t[1] = o.y, x.t[2] = o.z;
+				rlm::draw(*body, team, x, cam, light, g_scratch, drawPoly);
+			}
+			const rlm::Mesh* wheel = rlm::Models::pick(g_models.wheel, lod);
+			for (int w = 0; wheel && w < 4; w++) {
+				const float* wc = pose + 19 + 3 * w;
+				float local[3] = {wc[0], wc[1], wc[2]};
+				bool left = wc[1] < 0, front = wc[0] > 0;
+				if (g_models.hasAnchors) {
+					const float* an = g_models.anchors[(front ? 0 : 2) + (left ? 0 : 1)];
+					local[0] = an[0], local[1] = an[1];
+				}
+				double radius = std::max(1.0f, pose[31 + w]);
+				wheelRate[w] = onGround ? float(pose[39] / radius) : float(wheelRate[w] * std::exp(-0.5 * dt));
+				wheelSpin[w] = float(std::fmod(wheelSpin[w] + wheelRate[w] * dt, 6.283185307));
+				double cs = std::cos(wheelSpin[w]), sn = std::sin(wheelSpin[w]);
+				double st = pose[35 + w], cst = std::cos(st), snt = std::sin(st);
+				double spin[3][3] = {{cs, 0, sn}, {0, 1, 0}, {-sn, 0, cs}};
+				double steer[3][3] = {{cst, -snt, 0}, {snt, cst, 0}, {0, 0, 1}};
+				double mirror[3][3] = {{left ? -radius : radius, 0, 0}, {0, left ? -radius : radius, 0}, {0, 0, radius}};
+				double m[3][3];
+				rlm::mul(spin, mirror, m);
+				rlm::mul(steer, m, m);
+				rlm::Xform x;
+				rlm::mul(base, m, x.a);
+				float wp[3];
+				for (int i = 0; i < 3; i++) wp[i] = pose[i] + pose[3 + i] * local[0] + pose[6 + i] * local[1] + pose[9 + i] * local[2];
+				space::V3 g = frame.toGta(wp);
+				x.t[0] = g.x, x.t[1] = g.y, x.t[2] = g.z;
+				rlm::draw(*wheel, 0, x, cam, light, g_scratch, drawPoly);
+			}
+		}
+		if (!ball || g_models.ball.empty()) return;
+		space::V3 b = frame.toGta(ballPose);
+		double bd = std::sqrt((b.x - cam[0]) * (b.x - cam[0]) + (b.y - cam[1]) * (b.y - cam[1]) + (b.z - cam[2]) * (b.z - cam[2]));
+		if (bd > g_settings.modelMaxDistance) return;
+		int lod = g_settings.modelDetail + int(bd / std::max(1.0f, g_settings.modelLodDistance * 1.5f));
+		const rlm::Mesh* mesh = rlm::Models::pick(g_models.ball, lod);
+		double qx = ballRot.x, qy = ballRot.y, qz = ballRot.z, qw = ballRot.w;
+		double q[3][3] = {{1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)},
+		                  {2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)},
+		                  {2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)}};
+		double r = g_settings.ball[0] * k;
+		double sc[3][3] = {{r, 0, 0}, {0, -r, 0}, {0, 0, r}};
+		rlm::Xform x;
+		rlm::mul(q, sc, x.a);
+		x.t[0] = b.x, x.t[1] = b.y, x.t[2] = b.z;
+		rlm::draw(*mesh, 0, x, cam, light, g_scratch, drawPoly);
+	}
 
 	void removeBall() {
 		if (ballProp && ENTITY::DOES_ENTITY_EXIST(ballProp)) {
@@ -270,11 +368,11 @@ struct RlCar {
 
 		Vector3 mn{}, mx{};
 		MISC::GET_MODEL_DIMENSIONS(model, &mn, &mx);
-		frame.scale = g_settings.worldScale;
+		g_api.preset_hitbox(uint32_t(preset), hitbox);
+		frame.scale = g_settings.worldScale > 0 ? g_settings.worldScale : std::max(0.5, double(mx.y - mn.y) / (hitbox[0] / 100.0));
 		modelLift = g_settings.modelOffset != 0 ? float(g_settings.modelOffset) : float(-mn.z - frame.lenToGta(17.0));
 
 		car = g_api.car_new(uint32_t(preset));
-		g_api.preset_hitbox(uint32_t(preset), hitbox);
 		g_api.car_set_config(car, g_settings.sim);
 		probe = std::make_unique<ProbeWorld>([this](const float* a, const float* b, ProbeHit& h) {
 			return gtaProbe(frame, g_settings.probeFlags, veh, a, b, h);
@@ -283,8 +381,8 @@ struct RlCar {
 		world = g_api.cbworld_new(probe.get(), &ProbeWorld::cbRaycast, &ProbeWorld::cbBox, &ProbeWorld::cbSphere);
 		camera = g_api.camera_new();
 		placeAt(at, heading);
-		log("car spawned: model %s, preset %d, team %d, at %.1f %.1f %.1f, model lift %.2f m", g_settings.fallbackModel.c_str(), preset,
-		    team, at.x, at.y, at.z, modelLift);
+		log("car spawned: model %s (%.2f x %.2f x %.2f m), preset %d, team %d, scale %.2f, at %.1f %.1f %.1f, model lift %.2f m",
+		    g_settings.fallbackModel.c_str(), mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, preset, team, frame.scale, at.x, at.y, at.z, modelLift);
 		return true;
 	}
 
@@ -317,12 +415,45 @@ struct RlCar {
 
 	bool live = false;
 
+	void drawHitbox() const {
+		space::V3 c[8];
+		for (int i = 0; i < 8; i++) {
+			float p[3];
+			for (int k = 0; k < 3; k++) {
+				float lx = hitbox[3] + ((i & 1) ? 0.5f : -0.5f) * hitbox[0];
+				float ly = hitbox[4] + ((i & 2) ? 0.5f : -0.5f) * hitbox[1];
+				float lz = hitbox[5] + ((i & 4) ? 0.5f : -0.5f) * hitbox[2];
+				p[k] = pose[k] + pose[3 + k] * lx + pose[6 + k] * ly + pose[9 + k] * lz;
+			}
+			c[i] = frame.toGta(p);
+		}
+		static const int e[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+		for (auto& ed : e) {
+			const space::V3 &a = c[ed[0]], &b = c[ed[1]];
+			GRAPHICS::DRAW_LINE(float(a.x), float(a.y), float(a.z), float(b.x), float(b.y), float(b.z), 40, 255, 80, 255);
+		}
+		if (!ball) return;
+		space::V3 bc = frame.toGta(ballPose);
+		double r = frame.lenToGta(g_settings.ball[0]);
+		for (int plane = 0; plane < 3; plane++) {
+			for (int j = 0; j < 32; j++) {
+				double a0 = j * 6.2831853 / 32, a1 = (j + 1) * 6.2831853 / 32;
+				auto pt = [&](double a) {
+					double u = std::cos(a) * r, v = std::sin(a) * r;
+					return plane == 0 ? space::V3{bc.x + u, bc.y + v, bc.z} : plane == 1 ? space::V3{bc.x + u, bc.y, bc.z + v} : space::V3{bc.x, bc.y + u, bc.z + v};
+				};
+				space::V3 a = pt(a0), b = pt(a1);
+				GRAPHICS::DRAW_LINE(float(a.x), float(a.y), float(a.z), float(b.x), float(b.y), float(b.z), 40, 200, 255, 255);
+			}
+		}
+	}
+
 	void setLive(bool on) {
 		live = on;
 		ENTITY::FREEZE_ENTITY_POSITION(veh, on ? FALSE : TRUE);
 		ENTITY::SET_ENTITY_HAS_GRAVITY(veh, on ? FALSE : TRUE);
 		VEHICLE::SET_VEHICLE_GRAVITY(veh, on ? FALSE : TRUE);
-		ENTITY::SET_ENTITY_COLLISION(veh, on ? FALSE : TRUE, FALSE);
+		ENTITY::SET_ENTITY_COLLISION(veh, FALSE, FALSE);
 	}
 
 	void applyPose(float alpha) {
@@ -352,6 +483,11 @@ bool loadSettings() {
 	Ini ini;
 	bool found = ini.loadFile(g_dataDir + "\\RLCar.ini");
 	g_settings.load(ini, g_api);
+	{
+		std::string mlog;
+		g_modelsOk = g_models.load(g_dataDir + "\\" + g_settings.modelFolder, Settings::presetName(g_settings.preset), mlog);
+		log("models %s: %s%s", g_settings.modelFolder.c_str(), mlog.c_str(), g_modelsOk ? "drawing the real car" : "using the GTA models");
+	}
 	if (g_car && g_car->car) {
 		g_api.car_set_config(g_car->car, g_settings.sim);
 		g_car->applyWorldSettings();
@@ -413,7 +549,7 @@ void deliverOrder() {
 }
 
 const char* kMenu[] = {"Become the car", "Order from the Mechanic", "Hitbox", "Team", "Unlimited boost", "Spawn the ball",
-                       "Remove the ball", "Remove the car", "Reload RLCar.ini", "Close"};
+                       "Remove the ball", "Remove the car", "Reload RLCar.ini", "Hitbox overlay", "Close"};
 constexpr int kMenuItems = int(sizeof(kMenu) / sizeof(kMenu[0]));
 
 void runMenu(const InputState& s) {
@@ -448,7 +584,8 @@ void runMenu(const InputState& s) {
 			case 6: if (g_car) g_car->removeBall(); break;
 			case 7: g_car.reset(); break;
 			case 8: notify(loadSettings() ? "RLCar.ini reloaded" : "RLCar.ini not found, using defaults"); break;
-			case 9: g_menuOpen = false; break;
+			case 9: g_settings.showHitbox = !g_settings.showHitbox; break;
+			case 10: g_menuOpen = false; break;
 		}
 	}
 	if (g_car && g_car->car && g_menuIndex == 4 && (dir || select)) g_api.car_set_config(g_car->car, g_settings.sim);
@@ -463,6 +600,8 @@ void runMenu(const InputState& s) {
 			snprintf(line, sizeof line, "Team: < %s >", g_settings.team ? "orange" : "blue");
 		else if (i == 4)
 			snprintf(line, sizeof line, "Unlimited boost: %s", g_settings.sim[10] != 0 ? "on" : "off");
+		else if (i == 9)
+			snprintf(line, sizeof line, "Hitbox overlay: %s", g_settings.showHitbox ? "on" : "off");
 		else
 			snprintf(line, sizeof line, "%s", kMenu[i]);
 		bool sel = i == g_menuIndex;
@@ -588,6 +727,13 @@ void tick() {
 		CarView view{&c.frame, c.pose, {}, c.car, c.veh, speed * dt + 10.0f};
 		std::copy(c.hitbox, c.hitbox + 6, view.hitbox);
 		if (int hits = c.interactions.update(g_api, view, g_settings.interact)) log("hit %d GTA entities at %.0f uu/s", hits, speed);
+		{
+			space::V3 p = c.frame.toGta(c.pose);
+			space::V3 v = space::dirToGta(c.pose + 12);
+			double k = c.frame.k();
+			STREAMING::REQUEST_COLLISION_AT_COORD(float(p.x), float(p.y), float(p.z));
+			STREAMING::REQUEST_COLLISION_AT_COORD(float(p.x + v.x * k * 0.5), float(p.y + v.y * k * 0.5), float(p.z + v.z * k * 0.5));
+		}
 		uint32_t b = (drive.jump ? ffi::buttons::JUMP : 0) | (drive.boost ? ffi::buttons::BOOST : 0) |
 		             (drive.handbrake ? ffi::buttons::HANDBRAKE : 0);
 		if (c.ball)
@@ -598,6 +744,8 @@ void tick() {
 	float alpha = g_api.car_alpha(c.car);
 	c.applyPose(alpha);
 	c.applyBallPose(alpha, HUD::IS_PAUSE_MENU_ACTIVE() ? 0.0f : dt);
+	c.drawModels(HUD::IS_PAUSE_MENU_ACTIVE() ? 0.0f : dt);
+	if (g_settings.showHitbox) c.drawHitbox();
 	c.recentre();
 
 	if (inCar) {
@@ -611,6 +759,7 @@ void tick() {
 void scriptMain() {
 	log("RL Car starting (folder %s)", g_dataDir.c_str());
 	loadXInput();
+	hidpad::start();
 	g_apiOk = ffi::load(g_dataDir + "\\rl_car_ffi.dll", g_api, g_apiError);
 	if (!g_apiOk) {
 		log("rl_car_ffi: %s", g_apiError.c_str());

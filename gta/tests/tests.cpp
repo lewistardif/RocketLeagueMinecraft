@@ -2,6 +2,7 @@
 #include "../src/geom.h"
 #include "../src/ini.h"
 #include "../src/probe_world.h"
+#include "../src/model.h"
 #include "../src/rlcar_ffi.h"
 #include "../src/settings.h"
 #include "../src/space.h"
@@ -10,6 +11,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <string>
 #include <vector>
 #ifdef _WIN32
 #include <windows.h>
@@ -168,6 +171,128 @@ static void testProbeWorldMatchesReference() {
 	api.cbworld_free(cw);
 }
 
+static const float kSlabs[][6] = {{-20000, -20000, -4, 20000, 20000, 0}, {1500, -20000, -4, 1504, 20000, 20000}};
+
+static bool slabProbe(const float* a, const float* b, ProbeHit& h) {
+	float best = 2;
+	for (auto& s : kSlabs) {
+		float t0 = 0, t1 = 1;
+		int axis = -1;
+		float sign = 0;
+		bool ok = true;
+		for (int i = 0; i < 3 && ok; i++) {
+			float d = b[i] - a[i];
+			if (std::fabs(d) < 1e-9f) {
+				if (a[i] < s[i] || a[i] > s[i + 3]) ok = false;
+				continue;
+			}
+			float ta = (s[i] - a[i]) / d, tb = (s[i + 3] - a[i]) / d;
+			float sg = -1;
+			if (ta > tb) std::swap(ta, tb), sg = 1;
+			if (ta > t0) t0 = ta, axis = i, sign = sg;
+			t1 = std::min(t1, tb);
+			if (t0 > t1) ok = false;
+		}
+		if (!ok || axis < 0 || t0 >= best) continue;
+		best = t0;
+		for (int i = 0; i < 3; i++) h.point[i] = a[i] + (b[i] - a[i]) * t0, h.normal[i] = 0;
+		h.normal[axis] = sign;
+	}
+	return best <= 1;
+}
+
+static void testNoTunnelling() {
+	ProbeWorld pw(slabProbe);
+	pw.wallRamps = false;
+	ffi::World* w = api.cbworld_new(&pw, &ProbeWorld::cbRaycast, &ProbeWorld::cbBox, &ProbeWorld::cbSphere);
+	ffi::Car* car = api.car_new(0);
+	float pose[ffi::POSE_FLOATS];
+	float worstZ = 1e9f, fall = 0;
+	for (float roll : {0.0f, 1.5708f, 3.14159f}) {
+		float pos[3] = {-5000, 0, 6000};
+		api.car_reset(car, pos, 0, 0.3f, roll);
+		for (int t = 0; t < 900; t++) {
+			api.car_step_cb(car, w, 1, 0, 0, 0, 0, 0, 0);
+			api.car_pose(car, 1, pose);
+			worstZ = std::min(worstZ, pose[2]);
+			fall = std::min(fall, pose[14]);
+		}
+	}
+	float pos[3] = {-12000, 0, 30};
+	api.car_reset(car, pos, 0, 0, 0);
+	api.car_set_unlimited_boost(car, 1);
+	float maxX = -1e9f, maxSpeed = 0;
+	for (int t = 0; t < 1200; t++) {
+		api.car_step_cb(car, w, 1, 1.0f, 0, 0, 0, 0, ffi::buttons::BOOST);
+		api.car_pose(car, 1, pose);
+		maxX = std::max(maxX, pose[0]);
+		if (pose[0] < 1000) maxSpeed = std::max(maxSpeed, std::sqrt(pose[12] * pose[12] + pose[13] * pose[13]));
+	}
+	std::printf("  thin slabs: dropped at %.0f uu/s upright, sideways and upside down, lowest z %.1f; hit a 4 uu wall at %.0f uu/s, closest x %.1f\n",
+	            -fall, worstZ, maxSpeed, maxX);
+	CHECK(-fall > 2000);
+	CHECK(worstZ > -20);
+	CHECK(maxSpeed > 2200);
+	CHECK(maxX < 1500);
+	api.car_free(car);
+	api.cbworld_free(w);
+}
+
+static void testModelLoadAndCull() {
+	std::string path = "rlm_test_cube.rlm";
+	{
+		FILE* f = std::fopen(path.c_str(), "wb");
+		const float v[] = {-1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1};
+		const uint32_t t[] = {0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 2, 3, 7, 2, 7, 6, 1, 2, 6, 1, 6, 5, 0, 4, 7, 0, 7, 3};
+		uint32_t hdr[3] = {8, 12, 2};
+		std::fwrite("RLM1", 1, 4, f);
+		std::fwrite(hdr, 4, 3, f);
+		std::fwrite(v, 4, 24, f);
+		std::fwrite(t, 4, 36, f);
+		std::vector<uint8_t> c(12 * 4 * 2, 200);
+		for (int i = 0; i < 12; i++) c[size_t(i) * 4 + 3] = 0;
+		std::fwrite(c.data(), 1, c.size(), f);
+		std::fclose(f);
+	}
+	rlm::Mesh m;
+	std::string err;
+	CHECK(rlm::load(path, m, err));
+	CHECK(m.triangles() == 12 && m.colours.size() == 2);
+	double cam[3] = {10, 0, 0};
+	rlm::Light light;
+	std::vector<double> scratch;
+	rlm::Xform x;
+	int n = 0;
+	rlm::draw(m, 1, x, cam, light, scratch, [&](const double*, const double*, const double*, const int*) { n++; });
+	CHECK(n == 2);
+	rlm::Xform mirrored;
+	mirrored.a[1][1] = -1;
+	int nm = 0;
+	rlm::draw(m, 0, mirrored, cam, light, scratch, [&](const double* a, const double* b, const double* c, const int*) {
+		if (a[0] > 0.99 && b[0] > 0.99 && c[0] > 0.99) nm++;
+	});
+	CHECK(nm == 2);
+	double diag[3] = {10, 10, 10};
+	int corner = 0;
+	rlm::draw(m, 0, x, diag, light, scratch, [&](const double*, const double*, const double*, const int*) { corner++; });
+	CHECK(corner == 6);
+	std::remove(path.c_str());
+	CHECK(!rlm::load(path, m, err));
+	if (const char* dir = std::getenv("RLM_DIR")) {
+		rlm::Models models;
+		std::string log;
+		bool ok = models.load(dir, "octane", log);
+		std::printf("  models in %s: %s\n", dir, log.c_str());
+		CHECK(ok && models.hasAnchors);
+		CHECK(models.anchors[0][0] > 0 && models.anchors[0][1] < 0 && models.anchors[3][0] < 0 && models.anchors[3][1] > 0);
+		float mn[3] = {1e9f, 1e9f, 1e9f}, mx[3] = {-1e9f, -1e9f, -1e9f};
+		const rlm::Mesh& b = models.body[0];
+		for (size_t i = 0; i < b.pos.size(); i++) mn[i % 3] = std::min(mn[i % 3], b.pos[i]), mx[i % 3] = std::max(mx[i % 3], b.pos[i]);
+		std::printf("  octane body %u tris, extent x %.1f..%.1f y %.1f..%.1f z %.1f..%.1f uu\n", b.triangles(), mn[0], mx[0], mn[1], mx[1], mn[2], mx[2]);
+		CHECK(mx[0] - mn[0] > 110 && mx[0] - mn[0] < 150);
+	}
+}
+
 static void testWallRampClimb() {
 	ProbeWorld pw(planeProbe);
 	ffi::World* w = api.cbworld_new(&pw, &ProbeWorld::cbRaycast, &ProbeWorld::cbBox, &ProbeWorld::cbSphere);
@@ -222,7 +347,7 @@ static void testIniAndSettings() {
 		for (int i = 0; i < ffi::SIM_CONFIG_FLOATS; i++)
 			if (i != 10) CHECK(d.sim[i] == def[i]);
 		CHECK(d.sim[10] == 1);
-		CHECK(std::fabs(d.worldScale - 2.5) < 1e-9);
+		CHECK(d.worldScale == 0);
 	} else {
 		std::printf("  (RLCar.ini not found from the working directory; shipped-defaults check skipped)\n");
 	}
@@ -314,6 +439,8 @@ int main(int argc, char** argv) {
 	testBindings();
 	testProbeWorldMatchesReference();
 	testWallRampClimb();
+	testNoTunnelling();
+	testModelLoadAndCull();
 	testGeom();
 	testBallAndBump();
 	std::printf("%d checks, %d failures\n", g_checks, g_failures);

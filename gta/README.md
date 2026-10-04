@@ -56,9 +56,13 @@ The unit tests also run on Linux: `gta/tests/run_tests.sh`.
 
 Every binding can be changed in `RLCar.ini`. Use commas for alternatives and `+` for chords.
 
-At supersonic speed, hitting a GTA car with the front bumper demolishes it, and hitting a pedestrian
-knocks them out. Below supersonic, cars and pedestrians get Rocket League's bump. Turn this off or
+Hitting a GTA car or pedestrian from any side pushes it away like a Rocket League car of the same
+mass would (`VehicleMass`, `PedMass`). A hit with the front bumper adds Rocket League's bump on top,
+and at supersonic speed it demolishes: cars explode, pedestrians are knocked out. Turn this off or
 scale it in `[Interaction]`.
+
+PlayStation pads (DualSense, DualShock 4) work directly over USB or Bluetooth, without DS4Windows or
+Steam Input. Square is powerslide and free air roll.
 
 ## Settings
 
@@ -67,13 +71,14 @@ scale it in `[Interaction]`.
 | Section | What it holds |
 |---|---|
 | `[General]` | hitbox preset, team, the GTA vehicle drawn for the car, HUD |
-| `[Scale]` | `WorldScale`: GTA metres per Rocket League metre. 2.5 makes the Octane about as big as a GTA car. The physics is the same at any scale. |
+| `[Scale]` | `WorldScale`: GTA metres per Rocket League metre. `auto` makes the car as long as the GTA vehicle it replaces. The physics is the same at any scale. |
 | `[Car]` | Rocket League's physics values: gravity, boost, jump, friction, top speed, unlimited flips or boost |
 | `[Ball]` | ball model, size, mass, drag, bounce, friction, speed and spin caps, hit force |
 | `[Camera]` | a Rocket League camera preset, or `Custom` with your own values |
 | `[Controls]`, `[Gamepad]` | bindings, deadzones |
 | `[Interaction]` | bumps and demolitions of GTA cars and pedestrians |
 | `[Effects]` | boost flame, exhaust glow, boost sound |
+| `[Models]` | the real car, wheel and ball models: detail level, distances, shading |
 | `[Weapons]` | the machine gun and missiles on the car |
 | `[World]` | what the car and ball collide with, the wall quarter-pipes |
 
@@ -82,11 +87,22 @@ differ from the game.
 
 ## Car models
 
-The car is drawn with a stock GTA vehicle (`FallbackModel`, default `bifta`), coloured for your
-team. Turning the Rocket League models from `tools/rl_assets/extract.py` into a GTA add-on vehicle is
-not automated. GTA's model formats need tools like CodeWalker or Sollumz. Extracted or converted
-models are your own local files: they stay out of git, and Epic's EULA does not allow extracting
-the game's assets.
+If `RLCar\models\` holds converted Rocket League models, the plugin draws the real Octane body,
+its four wheels (steering, spinning, on their suspension) and the real ball, and hides the GTA
+vehicle and ball prop. The models are drawn as flat-shaded triangles coloured from the game's own
+textures, with your team's paint. Without the files the car is a stock GTA vehicle (`FallbackModel`,
+default `bifta`).
+
+Making the files from your own Rocket League install:
+
+```
+python tools/rl_assets/extract.py --umodel <folder with umodel_64.exe> --upksuite <RL-UPKSuite release folder>
+python gta/tools/rl_models.py --assets assets/rl --out "<GTA V folder>/RLCar/models"
+```
+
+Extracted or converted models are your own local files: they stay out of git, and Epic's EULA does
+not allow extracting the game's assets. A real GTA add-on vehicle with full textures would need
+tools like CodeWalker or Sollumz and is not automated.
 
 ## Layout
 
@@ -97,6 +113,9 @@ src/gta_probe.cpp    GTA's synchronous shape test
 src/space.h          Rocket League <-> GTA coordinates
 src/rlcar_ffi.*      loads rl_car_ffi.dll
 src/interact.*       bumps and demolitions of GTA entities
+src/model.*          loads and draws the converted Rocket League models
+src/hid_pad.*, sony_pad.h   DualSense / DualShock 4 over HID
+tools/rl_models.py   converts the extracted glTF models into RLCar\models\*.rlm
 src/effects.*        boost flame, glow, sound
 src/weapons.*        machine gun, missiles
 src/settings.*, ini.*, bindings.*   RLCar.ini

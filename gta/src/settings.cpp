@@ -33,7 +33,10 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	modelOffset = ini.num("General", "ModelOffset", 0);
 	showHud = ini.flag("General", "ShowHud", true);
 	debugLog = ini.flag("General", "DebugLog", false);
-	worldScale = std::clamp(ini.num("Scale", "WorldScale", 2.5), 0.1, 20.0);
+	showHitbox = ini.flag("General", "ShowHitbox", false);
+	std::string ws = lower(ini.str("Scale", "WorldScale", "auto"));
+	worldScale = ws == "auto" ? 0.0 : ini.num("Scale", "WorldScale", 0);
+	worldScale = worldScale <= 0 ? 0.0 : std::clamp(worldScale, 0.1, 20.0);
 
 	api.default_config(sim);
 	static const char* kSimKeys[ffi::SIM_CONFIG_FLOATS] = {
@@ -56,7 +59,7 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	rearCameraToggle = ini.flag("Camera", "RearCameraToggle", false);
 	probeFlags = int(ini.num("World", "ProbeFlags", probeFlags));
 	wallRamps = ini.flag("World", "WallRamps", true);
-	wallRampRadius = std::clamp(ini.numf("World", "WallRampRadius", 320), 50.0f, 2000.0f);
+	wallRampRadius = std::clamp(ini.numf("World", "WallRampRadius", 150), 50.0f, 2000.0f);
 	ballEnabled = ini.flag("Ball", "Enabled", true);
 	ballModel = ini.str("Ball", "Model", "stt_prop_stunt_soccer_ball");
 	ballCamOnSpawn = ini.flag("Ball", "BallCamOnSpawn", true);
@@ -69,6 +72,11 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	interact.hitPeds = ini.flag("Interaction", "HitPeds", true);
 	interact.bumpForce = ini.numf("Interaction", "BumpForce", 1.0f);
 	interact.pedForce = ini.numf("Interaction", "PedForce", 1.0f);
+	interact.vehicleMass = ini.numf("Interaction", "VehicleMass", 180.0f);
+	interact.pedMass = ini.numf("Interaction", "PedMass", 60.0f);
+	interact.restitution = ini.numf("Interaction", "Restitution", 0.1f);
+	interact.pedLift = ini.numf("Interaction", "PedLift", 0.25f);
+	interact.minImpactSpeed = ini.numf("Interaction", "MinImpactSpeed", 150.0f);
 	effects.enabled = ini.flag("Effects", "Enabled", true);
 	effects.asset = ini.str("Effects", "BoostAsset", effects.asset);
 	effects.effect = ini.str("Effects", "BoostEffect", effects.effect);
@@ -84,6 +92,15 @@ void Settings::load(const Ini& ini, const ffi::Api& api) {
 	effects.glowIntensity = ini.numf("Effects", "GlowIntensity", effects.glowIntensity);
 	effects.boostSound = ini.flag("Effects", "BoostSound", effects.boostSound);
 	effects.engineAudio = ini.flag("Effects", "EngineAudio", effects.engineAudio);
+	models = ini.flag("Models", "Enabled", true);
+	modelFolder = ini.str("Models", "Folder", "models");
+	modelDetail = int(ini.num("Models", "Detail", 1));
+	modelLodDistance = ini.numf("Models", "LodDistance", 15.0f);
+	modelMaxDistance = ini.numf("Models", "MaxDistance", 300.0f);
+	modelWinding = int(ini.num("Models", "Winding", 0));
+	modelAmbient = ini.numf("Models", "Ambient", 0.45f);
+	modelDiffuse = ini.numf("Models", "Diffuse", 0.6f);
+	modelBrightness = ini.numf("Models", "Brightness", 1.0f);
 	weapons.enabled = ini.flag("Weapons", "Enabled", true);
 	weapons.gun = ini.str("Weapons", "Gun", weapons.gun);
 	weapons.missile = ini.str("Weapons", "Missile", weapons.missile);

@@ -46,28 +46,15 @@ geom::Box entityBox(const space::Frame& f, Entity e, bool ped) {
 
 void Interactions::clear() {
 	cooldown_.clear();
-	wrecks_.clear();
 }
 
 int Interactions::update(const ffi::Api& api, const CarView& car, const InteractSettings& s) {
-	DWORD now = GetTickCount();
-	for (size_t i = 0; i < wrecks_.size();) {
-		if (now >= wrecks_[i].second) {
-			Entity e = wrecks_[i].first;
-			if (ENTITY::DOES_ENTITY_EXIST(e)) {
-				ENTITY::SET_ENTITY_AS_MISSION_ENTITY(e, TRUE, TRUE);
-				ENTITY::DELETE_ENTITY(&e);
-			}
-			wrecks_[i] = wrecks_.back();
-			wrecks_.pop_back();
-		} else {
-			++i;
-		}
-	}
 	if (!s.enabled) return 0;
+	DWORD now = GetTickCount();
 	const space::Frame& f = *car.frame;
 	geom::Box me = carBox(car, car.lookahead);
 	geom::Box exact = carBox(car, 0);
+	const float* myVel = car.pose + 12;
 	int hits = 0;
 	for (int pass = 0; pass < 2; pass++) {
 		bool peds = pass == 1;
@@ -90,33 +77,48 @@ int Interactions::update(const ffi::Api& api, const CarView& car, const Interact
 			float local[3];
 			geom::closestLocal(exact, other.c, local);
 			float contactX = local[0] + car.hitbox[3];
+			float cw[3], nrm[3];
+			for (int k = 0; k < 3; k++) cw[k] = exact.c[k] + exact.ax[0][k] * local[0] + exact.ax[1][k] * local[1] + exact.ax[2][k] * local[2];
+			for (int k = 0; k < 3; k++) nrm[k] = other.c[k] - cw[k];
+			if (!peds) nrm[2] *= 0.25f;
+			float nl = std::sqrt(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
+			if (nl < 1e-3f) {
+				float vl = std::sqrt(myVel[0] * myVel[0] + myVel[1] * myVel[1] + myVel[2] * myVel[2]);
+				if (vl < 1e-3f) continue;
+				for (int k = 0; k < 3; k++) nrm[k] = myVel[k] / vl;
+			} else {
+				for (float& v : nrm) v /= nl;
+			}
 			Vector3 gv = ENTITY::GET_ENTITY_VELOCITY(e);
 			float rv[3], up[3] = {other.ax[2][0], other.ax[2][1], other.ax[2][2]};
 			space::dirToRl({gv.x / f.k(), gv.y / f.k(), gv.z / f.k()}, rv);
+			float vn = 0;
+			for (int k = 0; k < 3; k++) vn += (myVel[k] - rv[k]) * nrm[k];
 			bool ground = peds ? true : VEHICLE::IS_VEHICLE_ON_ALL_WHEELS(e) != 0;
-			float dv[3] = {};
-			uint32_t r = api.car_bump(car.car, other.c, rv, ground ? 1u : 0u, up, contactX, s.bumpForce, s.demolish ? 1u : 0u, dv);
-			if (r == 0) continue;
+			float bumpDv[3] = {};
+			uint32_t r = api.car_bump(car.car, other.c, rv, ground ? 1u : 0u, up, contactX, s.bumpForce, s.demolish ? 1u : 0u, bumpDv);
+			if (r == 0 && vn < s.minImpactSpeed) continue;
+			float victimMass = peds ? s.pedMass : s.vehicleMass;
+			float share = (1.0f + s.restitution) * s.carMass / (s.carMass + victimMass);
+			float dv[3];
+			for (int k = 0; k < 3; k++) dv[k] = nrm[k] * std::max(vn, 0.0f) * share;
+			if (peds) dv[2] += std::max(vn, 0.0f) * s.pedLift;
+			if (r != 0)
+				for (int k = 0; k < 3; k++) dv[k] += bumpDv[k];
 			cooldown_[e] = now + 250;
 			hits++;
-			if (r == 2) {
-				if (peds) {
-					FIRE::ADD_EXPLOSION(gp.x, gp.y, gp.z, 7, 0.0f, TRUE, FALSE, 0.4f, TRUE);
-					PED::SET_PED_TO_RAGDOLL(e, 4000, 4000, 0, FALSE, FALSE, FALSE);
-					ENTITY::SET_ENTITY_HEALTH(e, 0, 0, 0);
-				} else {
-					VEHICLE::EXPLODE_VEHICLE(e, TRUE, FALSE);
-					ENTITY::SET_ENTITY_AS_MISSION_ENTITY(e, TRUE, TRUE);
-					ENTITY::FREEZE_ENTITY_POSITION(e, TRUE);
-					ENTITY::SET_ENTITY_COLLISION(e, FALSE, FALSE);
-					wrecks_.push_back({e, now + 3000});
-				}
-				continue;
-			}
 			space::V3 g = space::dirToGta(dv);
 			double scale = f.k() * (peds ? s.pedForce : 1.0);
 			if (peds) PED::SET_PED_TO_RAGDOLL(e, 3000, 3000, 0, FALSE, FALSE, FALSE);
 			ENTITY::SET_ENTITY_VELOCITY(e, float(gv.x + g.x * scale), float(gv.y + g.y * scale), float(gv.z + g.z * scale));
+			if (r == 2) {
+				if (peds) {
+					FIRE::ADD_EXPLOSION(gp.x, gp.y, gp.z, 7, 0.0f, TRUE, FALSE, 0.4f, TRUE);
+					ENTITY::SET_ENTITY_HEALTH(e, 0, 0, 0);
+				} else {
+					VEHICLE::EXPLODE_VEHICLE(e, TRUE, FALSE);
+				}
+			}
 		}
 	}
 	return hits;

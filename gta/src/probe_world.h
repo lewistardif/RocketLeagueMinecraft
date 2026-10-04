@@ -52,12 +52,14 @@ private:
 		std::vector<Ramp> ramps;
 		std::vector<ProbeHit> hits;
 		float at[3] = {1e30f, 1e30f, 1e30f};
+		float last[3] = {1e30f, 1e30f, 1e30f};
 		int age = 1 << 30;
 	};
 	ProbeFn probe_;
 	Cache boxCache_, sphereCache_;
 	bool needsRefresh(Cache& c, const float* center);
 	void addHit(Cache& c, const ProbeHit& h, const float* rayDir);
+	void sweep(Cache& c, const float* from, const float* to, const float* moved, float movedLen, const float* const* ax, const float* he, float margin);
 	void probeForWalls(Cache& c, const float* center, const float* up, float reach);
 	void buildRamps(Cache& c);
 	bool wallBehind(const Ramp& r, const float* surfacePoint);

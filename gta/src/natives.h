@@ -29,6 +29,8 @@ inline void INVALIDATE_IDLE_CAM() { return invoke<void>(0xF4F2C0D4EE209E20ULL); 
 inline void SHAKE_GAMEPLAY_CAM(const char* shakeName, float intensity) { return invoke<void>(0xFD55E49555E017CFULL, shakeName, intensity); }
 inline void SHAKE_CAM(Cam cam, const char* type, float amplitude) { return invoke<void>(0x6A25241C340D3822ULL, cam, type, amplitude); }
 inline float GET_GAMEPLAY_CAM_FOV() { return invoke<float>(0x65019750A0324133ULL); }
+inline Vector3 GET_FINAL_RENDERED_CAM_COORD() { return invoke<Vector3>(0xA200EB1EE790F448ULL); }
+inline Vector3 GET_FINAL_RENDERED_CAM_ROT(int rotationOrder) { return invoke<Vector3>(0x5B4E4C817FCC2DFBULL, rotationOrder); }
 }
 
 namespace DLC {
@@ -97,6 +99,7 @@ inline void SET_PARTICLE_FX_LOOPED_EVOLUTION(int ptfxHandle, const char* propert
 inline void SET_PARTICLE_FX_LOOPED_COLOUR(int ptfxHandle, float r, float g, float b, BOOL p4) { return invoke<void>(0x7F8F65877F88783BULL, ptfxHandle, r, g, b, p4); }
 inline BOOL START_PARTICLE_FX_NON_LOOPED_AT_COORD(const char* effectName, float xPos, float yPos, float zPos, float xRot, float yRot, float zRot, float scale, BOOL xAxis, BOOL yAxis, BOOL zAxis) { return invoke<BOOL>(0x25129531F77B9ED3ULL, effectName, xPos, yPos, zPos, xRot, yRot, zRot, scale, xAxis, yAxis, zAxis); }
 inline BOOL DOES_PARTICLE_FX_LOOPED_EXIST(int ptfxHandle) { return invoke<BOOL>(0x74AFEF0D2E1E409BULL, ptfxHandle); }
+inline void DRAW_POLY(float x1, float y1, float z1, float x2, float y2, float z2, float x3, float y3, float z3, int red, int green, int blue, int alpha) { return invoke<void>(0xAC26716048436851ULL, x1, y1, z1, x2, y2, z2, x3, y3, z3, red, green, blue, alpha); }
 }
 
 namespace HUD {
@@ -132,6 +135,10 @@ inline int GET_GAME_TIMER() { return invoke<int>(0x9CD27B0045628463ULL); }
 inline BOOL GET_GROUND_Z_FOR_3D_COORD(float x, float y, float z, float* groundZ, BOOL ignoreWater, BOOL p5) { return invoke<BOOL>(0xC906A7DAB05C8D2BULL, x, y, z, groundZ, ignoreWater, p5); }
 inline void SHOOT_SINGLE_BULLET_BETWEEN_COORDS(float x1, float y1, float z1, float x2, float y2, float z2, int damage, BOOL p7, Hash weaponHash, Ped ownerPed, BOOL isAudible, BOOL isInvisible, float speed) { return invoke<void>(0x867654CBC7606F2CULL, x1, y1, z1, x2, y2, z2, damage, p7, weaponHash, ownerPed, isAudible, isInvisible, speed); }
 inline void SHOOT_SINGLE_BULLET_BETWEEN_COORDS_IGNORE_ENTITY(float x1, float y1, float z1, float x2, float y2, float z2, int damage, BOOL p7, Hash weaponHash, Ped ownerPed, BOOL isAudible, BOOL isInvisible, float speed, Entity entity, Any p14) { return invoke<void>(0xE3A7742E0B7A2F8BULL, x1, y1, z1, x2, y2, z2, damage, p7, weaponHash, ownerPed, isAudible, isInvisible, speed, entity, p14); }
+}
+
+namespace NETWORK {
+inline void SET_ENTITY_LOCALLY_INVISIBLE(Entity entity) { return invoke<void>(0xE135A9FF3F5D05D8ULL, entity); }
 }
 
 namespace OBJECT {
@@ -190,6 +197,7 @@ inline void SET_MODEL_AS_NO_LONGER_NEEDED(Hash model) { return invoke<void>(0xE5
 inline BOOL IS_MODEL_IN_CDIMAGE(Hash model) { return invoke<BOOL>(0x35B9E0803292B641ULL, model); }
 inline BOOL IS_MODEL_A_VEHICLE(Hash model) { return invoke<BOOL>(0x19AAC8F07BFEC53EULL, model); }
 inline BOOL IS_MODEL_VALID(Hash model) { return invoke<BOOL>(0xC0296A2EDF545E92ULL, model); }
+inline void REQUEST_COLLISION_AT_COORD(float x, float y, float z) { return invoke<void>(0x07503F7948F491A7ULL, x, y, z); }
 }
 
 namespace TASK {

@@ -155,6 +155,29 @@ uint32_t ProbeWorld::raycast(const float* origin, const float* dir, float maxDis
 	return got ? 1 : 0;
 }
 
+void ProbeWorld::sweep(Cache& c, const float* from, const float* to, const float* moved, float movedLen, const float* const* ax, const float* he, float margin) {
+	float dir[3] = {moved[0] / movedLen, moved[1] / movedLen, moved[2] / movedLen};
+	float ext = 0;
+	for (int a = 0; a < 3; a++) ext += std::fabs(dot(dir, ax[a])) * he[a];
+	float end[3];
+	madd(end, to, dir, ext + std::max(margin, 0.0f) + lookahead);
+	ProbeHit h;
+	probes++;
+	if (probe_(from, end, h)) addHit(c, h, dir);
+	for (int k = 0; k < 8; k++) {
+		float off[3] = {0, 0, 0};
+		for (int a = 0; a < 3; a++) madd(off, off, ax[a], ((k >> a) & 1 ? 0.8f : -0.8f) * he[a]);
+		if (dot(off, dir) <= 0) continue;
+		float a1[3], rd[3];
+		for (int i = 0; i < 3; i++) a1[i] = to[i] + off[i] + dir[i] * (std::max(margin, 0.0f) + 10.0f), rd[i] = a1[i] - from[i];
+		float rl = len(rd);
+		if (rl < 1e-3f) continue;
+		for (float& v : rd) v /= rl;
+		probes++;
+		if (probe_(from, a1, h)) addHit(c, h, rd);
+	}
+}
+
 bool ProbeWorld::needsRefresh(Cache& c, const float* center) {
 	float d[3] = {center[0] - c.at[0], center[1] - c.at[1], center[2] - c.at[2]};
 	return ++c.age >= refreshTicks || len(d) > refreshDistance;
@@ -180,6 +203,10 @@ uint32_t ProbeWorld::boxContacts(const ffi::Obb& obb, float margin, ffi::Contact
 	const float* c = obb.center;
 	const float* ax[3] = {obb.axes, obb.axes + 3, obb.axes + 6};
 	const float* he = obb.half_extents;
+	float moved[3];
+	sub(moved, c, boxCache_.last);
+	float movedLen = len(moved);
+	bool swept = boxCache_.last[0] < 1e29f && movedLen > 1.0f && movedLen < 2000.0f;
 	if (needsRefresh(boxCache_, c)) {
 		boxCache_.planes.clear();
 		boxCache_.hits.clear();
@@ -210,6 +237,8 @@ uint32_t ProbeWorld::boxContacts(const ffi::Obb& obb, float margin, ffi::Contact
 		}
 		buildRamps(boxCache_);
 	}
+	if (swept) sweep(boxCache_, boxCache_.last, c, moved, movedLen, ax, he, margin);
+	std::copy(c, c + 3, boxCache_.last);
 	uint32_t n = 0;
 	for (auto& r : boxCache_.ramps) {
 		if (n >= cap) break;
@@ -245,8 +274,8 @@ uint32_t ProbeWorld::boxContacts(const ffi::Obb& obb, float margin, ffi::Contact
 		float dist = dot(pl.n, rel);
 		if (dist >= margin) continue;
 		float from[3], to[3];
-		madd(from, deepest, pl.n, std::max(margin, 0.0f) + 15.0f);
-		madd(to, deepest, pl.n, -(std::max(-dist, 0.0f) + 15.0f));
+		madd(from, deepest, pl.n, std::max(margin, 0.0f) + std::max(-dist, 0.0f) + 15.0f);
+		madd(to, deepest, pl.n, -15.0f);
 		ProbeHit h;
 		probes++;
 		if (!probe_(from, to, h)) continue;
@@ -263,6 +292,10 @@ uint32_t ProbeWorld::boxContacts(const ffi::Obb& obb, float margin, ffi::Contact
 }
 
 uint32_t ProbeWorld::sphereContacts(const float* c, float r, float margin, ffi::Contact* out, uint32_t cap) {
+	float moved[3];
+	sub(moved, c, sphereCache_.last);
+	float movedLen = len(moved);
+	bool swept = sphereCache_.last[0] < 1e29f && movedLen > 1.0f && movedLen < 2000.0f;
 	if (needsRefresh(sphereCache_, c)) {
 		sphereCache_.planes.clear();
 		sphereCache_.hits.clear();
@@ -288,6 +321,13 @@ uint32_t ProbeWorld::sphereContacts(const float* c, float r, float margin, ffi::
 		}
 		buildRamps(sphereCache_);
 	}
+	if (swept) {
+		float ax1[3] = {1, 0, 0}, ax2[3] = {0, 1, 0}, ax3[3] = {0, 0, 1};
+		const float* axs[3] = {ax1, ax2, ax3};
+		float hs[3] = {r, r, r};
+		sweep(sphereCache_, sphereCache_.last, c, moved, movedLen, axs, hs, margin);
+	}
+	std::copy(c, c + 3, sphereCache_.last);
 	uint32_t n = 0;
 	for (auto& rp : sphereCache_.ramps) {
 		if (n >= cap) break;
@@ -316,8 +356,8 @@ uint32_t ProbeWorld::sphereContacts(const float* c, float r, float margin, ffi::
 		float foot[3];
 		madd(foot, c, pl.n, -centerDist);
 		float from[3], to[3];
-		madd(from, c, pl.n, 0.0f);
-		madd(to, c, pl.n, -(centerDist + 10.0f));
+		madd(from, c, pl.n, std::max(-centerDist, 0.0f) + 5.0f);
+		madd(to, c, pl.n, -(std::max(centerDist, 0.0f) + 10.0f));
 		ProbeHit h;
 		probes++;
 		ffi::Contact ct{};

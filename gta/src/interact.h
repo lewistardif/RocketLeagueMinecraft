@@ -22,6 +22,5 @@ public:
 
 private:
 	std::unordered_map<int, DWORD> cooldown_;
-	std::vector<std::pair<int, DWORD>> wrecks_;
 	std::vector<int> buf_ = std::vector<int>(512);
 };
