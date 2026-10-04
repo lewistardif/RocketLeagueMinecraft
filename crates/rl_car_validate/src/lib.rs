@@ -1,5 +1,6 @@
 //! Oracle validation: compare `rl_car_core` trajectories against RocketSim ground truth.
 
+pub mod ball_scenarios;
 pub mod scenarios;
 
 use rl_car_core::{CarState, Mat3, Vec3, step};

@@ -1,0 +1,12 @@
+# Ball sliding at 1500 uu/s with no spin; friction turns the slide into a roll.
+name ball_slide_to_roll
+preset octane
+ticks 360
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ball 0 0 91.25 1500 0 0 0 0 0
+nocar

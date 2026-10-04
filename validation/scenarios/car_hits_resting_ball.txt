@@ -1,0 +1,12 @@
+# Car boosts into a sleeping kickoff ball.
+name car_hits_resting_ball
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 0 1 0
+ball 1200 0 93.15 0 0 0 0 0 0

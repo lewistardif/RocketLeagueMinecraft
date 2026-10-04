@@ -1,0 +1,12 @@
+# Ball dropped from 600 uu onto the floor, bouncing until it settles.
+name ball_drop
+preset octane
+ticks 480
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ball 0 0 600 0 0 -1 0 0 0
+nocar

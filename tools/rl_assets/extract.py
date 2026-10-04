@@ -49,6 +49,7 @@ CARS = {
     "psyclops": ("body_pixie_SF", "body_pixie_sk"),  # handling preset "Pixie"
 }
 WHEEL = ("Startup", "WHEEL_Star_SM", "Wheel_OEM_MIC")  # Octane's default "OEM" wheel
+BALL = ("GameInfo_Soccar_SF", "Ball_DefaultBall00", "Ball_Default00_D", "Ball_Default00_RGB")
 
 # Team paint (linear RGB). Approximations of the default team colours: the game picks them at
 # runtime from a palette lookup texture (CustomColors.Team*_ColorLookup) that is not extracted here.
@@ -293,6 +294,22 @@ class MaterialBaker:
         return m
 
 
+def bake_ball(baker: MaterialBaker, diffuse: str, masks: str) -> dict:
+    d = baker.tex.load(diffuse)
+    m = baker.tex.load(masks)
+    base = np.clip(d[..., :3] * 1.5, 0, 1)
+    out = {
+        "name": "Ball",
+        "pbrMetallicRoughness": {"baseColorTexture": {"index": baker.save("Ball_base", base)}, "metallicFactor": 0.2, "roughnessFactor": 0.45},
+    }
+    if m is not None:
+        glow = (m[..., 0:1] > 0.5).astype(np.float32) * d[..., :3]
+        if float(glow.max()) > 0:
+            out["emissiveTexture"] = {"index": baker.save("Ball_emissive", np.clip(glow * 2.0, 0, 1))}
+            out["emissiveFactor"] = [1.0, 1.0, 1.0]
+    return out
+
+
 def write_gltf(src_gltf: Path, out_dir: Path, out_name: str, materials: list[dict], images: list[str]) -> None:
     g = json.loads(src_gltf.read_text())
     bin_name = f"{src_gltf.stem}.bin"
@@ -361,7 +378,7 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
     exe = build_decryptor(args.upksuite.resolve(), args.work.resolve())
-    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0]} | set(BOOST_PACKAGES)), pkgs)
+    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0], BALL[0]} | set(BOOST_PACKAGES)), pkgs)
     link_texture_caches(cooked, pkgs)
 
     for preset, (package, mesh) in CARS.items():
@@ -389,6 +406,17 @@ def main() -> None:
     baker = MaterialBaker(wheel_dir, Textures(export, package))
     mats = [baker.bake(m["name"], material_props(export, package, m["name"]), TEAMS["blue"], "blue") for m in json.loads(src.read_text())["materials"]]
     write_gltf(src, wheel_dir, "wheel.gltf", mats, baker.images)
+
+    package, mesh, diffuse, masks = BALL
+    print(f"ball: {package}.{mesh}")
+    umodel_export(umodel, pkgs, export, package, mesh)
+    for tex in (diffuse, masks):
+        umodel_export(umodel, pkgs, export, package, tex)
+    src = next((export / package).rglob(f"StaticMesh3/{mesh}.gltf"))
+    ball_dir = args.out / "ball"
+    ball_dir.mkdir(parents=True, exist_ok=True)
+    baker = MaterialBaker(ball_dir, Textures(export, package))
+    write_gltf(src, ball_dir, "ball.gltf", [bake_ball(baker, diffuse, masks)], baker.images)
 
     print("boost: flame cones, smoke trail")
     grouped = args.work / "export_groups"

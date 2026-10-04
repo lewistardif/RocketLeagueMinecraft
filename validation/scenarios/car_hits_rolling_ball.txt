@@ -1,0 +1,12 @@
+# Ball rolling into a car driving towards it, off centre.
+name car_hits_rolling_ball
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 0 0 0
+ball 1500 60 91.25 -800 0 0 0 -8 0
