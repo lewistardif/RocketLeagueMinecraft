@@ -29,6 +29,10 @@ layout(location = 5) out vec4 lightDirStrength;
 layout(location = 6) out vec4 skyColorMoon;
 layout(location = 7) out vec4 lightMapColor;
 layout(location = 8) out float skyLevel;
+#ifdef RL_BALL
+// The ball's position along the field, -1..1 (rl_ball.fsh), in bits 8..14 of UV2.x.
+layout(location = 9) out float fieldY;
+#endif
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
@@ -44,6 +48,12 @@ void main() {
     int a = UV1.x & 0xFFFF;
     int b = UV1.y & 0xFFFF;
     skyColorMoon = vec4(float(a & 255), float(a >> 8), float(b & 255), float(b >> 8)) / 255.0;
-    lightMapColor = sample_lightmap(Sampler2, UV2);
-    skyLevel = clamp(float(UV2.y) / 240.0, 0.0, 1.0);
+#ifdef RL_BALL
+    ivec2 lightUv = ivec2(UV2.x & 0xFF, UV2.y);
+    fieldY = float((UV2.x >> 8) & 0x7F) / 63.0 - 1.0;
+#else
+    ivec2 lightUv = UV2;
+#endif
+    lightMapColor = sample_lightmap(Sampler2, lightUv);
+    skyLevel = clamp(float(lightUv.y) / 240.0, 0.0, 1.0);
 }

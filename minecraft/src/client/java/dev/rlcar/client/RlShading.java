@@ -41,10 +41,11 @@ import org.joml.Vector3fc;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Draws the cars and the wheel with ports of Rocket League's own material shaders, decompiled from
- * the game's shader cache: the body paint ({@code Body_Paintable_Mat}, with its windows, trims
- * and team colours), the chassis ({@code MasterChassis_MAT}, with the head and tail lights) and
- * the wheels ({@code Wheel_Master_Mat}). The shaders are in
+ * Draws the cars, the wheel and the ball with ports of Rocket League's own material shaders,
+ * decompiled from the game's shader cache: the body paint ({@code Body_Paintable_Mat}, with its
+ * windows, trims and team colours), the chassis ({@code MasterChassis_MAT}, with the head and tail
+ * lights), the wheels ({@code Wheel_Master_Mat}) and the ball ({@code MAT_Ball_V3}, in
+ * {@code rl_ball.fsh}). The shaders are in
  * {@code assets/rlcar/shaders/core/rl_*.fsh} (the chassis in its three variants: {@code MasterChassis_MAT},
  * {@code MAT_Chassis_Paintable} and the Dominus' {@code MAT_BANDAID_Chassis_Paintable}); their inputs (the unbaked textures and each
  * material instance's parameter values) are written next to the models by
@@ -64,6 +65,7 @@ public final class RlShading {
 		CHASSIS("core/rl_chassis", new String[] {"NormalMap", "DetailMap", "DiffuseMap", "SwirlMap", "MasksMap"}),
 		WHEEL("core/rl_wheel", new String[] {"RimNormalMap", "RimAddNormalMap", "TireNormalMap", "SwirlMap", "RimDiffuseMap", "TireDiffuseMap", "TireMaskMap"}),
 		GLASS("core/rl_glass", new String[0]),
+		BALL("core/rl_ball", new String[] {"NormalMap", "DetailMap", "MaskMap", "DiffuseMap"}),
 		BASIC("core/rl_basic", new String[] {"BaseMap"});
 
 		final String shader;
@@ -177,6 +179,7 @@ public final class RlShading {
 			register("cars/" + preset);
 		}
 		register("wheel");
+		register("ball");
 	}
 
 	private static void register(String folderName) {
@@ -199,6 +202,9 @@ public final class RlShading {
 					.withColorTargetState(ColorTargetState.DEFAULT)
 					.withCull(false);
 				defines(b, m, f, team);
+				if (m.kind == Kind.BALL) {
+					b.withShaderDefine("RL_BALL");
+				}
 				String debug = System.getProperty("rlcar.shadingDebug");
 				if (debug != null) {
 					b.withShaderDefine("RL_DEBUG_" + debug.trim());
@@ -271,6 +277,11 @@ public final class RlShading {
 				vec(b, 59, p.get("RimColor"));
 				vec(b, 60, new float[] {power, scalar(p, "ReflectionBrightness", 0.36F), scalar(p, "SpecIntensity", 10.0F), scalar(p, "SpecPower", 40.0F)});
 			}
+			case BALL -> {
+				// The team colours TeamColor_WorldSpace blends between (engine constants cb0[36], cb0[38]).
+				vec(b, 36, f.teams.getOrDefault("blue", new float[] {0.0F, 0.09F, 0.75F}));
+				vec(b, 38, f.teams.getOrDefault("orange", new float[] {0.90F, 0.20F, 0.006F}));
+			}
 			default -> {
 			}
 		}
@@ -334,6 +345,12 @@ public final class RlShading {
 						bind(setup, "RimDiffuseMap", m, "RimDiffuse", "@black", true);
 						bind(setup, "TireDiffuseMap", m, "TireDiffuse", "@black", true);
 						bind(setup, "TireMaskMap", m, "RimRGB", "@black", true);
+					}
+					case BALL -> {
+						bind(setup, "NormalMap", m, "Normal", "@flat", true);
+						bind(setup, "DetailMap", m, "Detail", "@flat", true);
+						bind(setup, "MaskMap", m, "Mask", "@black", true);
+						bind(setup, "DiffuseMap", m, "Diffuse", "@black", true);
 					}
 					case BASIC -> setup.withTexture("BaseMap", baseTexture);
 					case GLASS -> {
@@ -416,6 +433,21 @@ public final class RlShading {
 	 * materials. False (nothing drawn) when its materials are not available.
 	 */
 	public static boolean submit(SubmitNodeCollector collector, PoseStack poseStack, RlModels.Model model, String folderName, boolean orange, int light) {
+		return submit(collector, poseStack, model, folderName, orange, light, 0);
+	}
+
+	/**
+	 * Draws the ball with its ported material ({@code MAT_Ball_V3}). {@code fieldY} is its position
+	 * along the field (RL Y, uu from the kickoff spot / 1024), for the team-coloured lights. False
+	 * (nothing drawn) when the material is not available.
+	 */
+	public static boolean submitBall(SubmitNodeCollector collector, PoseStack poseStack, RlModels.Model model, int light, float fieldY) {
+		// 7 bits above the block light (rl_car.vsh, RL_BALL): -1..1 in 126 steps.
+		int bits = Math.round((Mth.clamp(fieldY, -1.0F, 1.0F) + 1.0F) * 63.0F);
+		return submit(collector, poseStack, model, "ball", false, light, bits << 8);
+	}
+
+	private static boolean submit(SubmitNodeCollector collector, PoseStack poseStack, RlModels.Model model, String folderName, boolean orange, int light, int extraLight) {
 		if (folder(folderName) == null) {
 			return false;
 		}
@@ -428,6 +460,7 @@ public final class RlShading {
 			}
 		}
 		Env env = env();
+		int packedLight = (light & 0xFFFF00FF) | extraLight;
 		for (int i = 0; i < types.length; i++) {
 			RlModels.Part part = model.parts().get(i);
 			collector.submitCustomGeometry(poseStack, types[i], (p, b) -> {
@@ -442,7 +475,7 @@ public final class RlShading {
 							.setColor(env.color)
 							.setUv(uv[v * 2], uv[v * 2 + 1])
 							.setUv1(env.uv1x, env.uv1y)
-							.setLight(light)
+							.setLight(packedLight)
 							.setNormal(p, nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
 					}
 				}

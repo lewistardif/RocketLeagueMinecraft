@@ -9,6 +9,8 @@ import dev.rlcar.physics.Space;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -26,6 +28,8 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
+import org.joml.Vector3f;
+import org.joml.Vector3fc;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -57,6 +61,12 @@ public class BallEntity extends Entity {
 	/** A kick from a player on foot (blocks/s along the look direction, plus a little lift). */
 	private static final double KICK_SPEED = 12;
 	private static final double KICK_LIFT = 4;
+	/**
+	 * Where the ball was put down (its centre, absolute blocks): the centre of the field for its
+	 * team-coloured lights, which the game's material colours by the field half the ball is in.
+	 * NaN until set.
+	 */
+	private static final EntityDataAccessor<Vector3fc> KICKOFF = SynchedEntityData.defineId(BallEntity.class, EntityDataSerializers.VECTOR3);
 
 	// Server.
 	private @Nullable BallSim sim;
@@ -86,7 +96,18 @@ public class BallEntity extends Entity {
 	public static BallEntity create(Level level, Vec3 center) {
 		BallEntity ball = new BallEntity(RlCar.BALL, level);
 		ball.setPos(center.subtract(0, RADIUS, 0));
+		ball.setKickoff(center);
 		return ball;
+	}
+
+	/** Server: puts the centre of the field (the kickoff spot) at {@code center}. */
+	public void setKickoff(Vec3 center) {
+		this.entityData.set(KICKOFF, center.toVector3f());
+	}
+
+	/** Where the ball was put down (its centre), NaN if unknown yet. */
+	public Vector3fc kickoff() {
+		return this.entityData.get(KICKOFF);
 	}
 
 	/** Server: true while a driver's client simulates this ball. */
@@ -100,6 +121,7 @@ public class BallEntity extends Entity {
 
 	@Override
 	protected void defineSynchedData(SynchedEntityData.Builder builder) {
+		builder.define(KICKOFF, new Vector3f(Float.NaN, Float.NaN, Float.NaN));
 	}
 
 	// ------------------------------------------------------------------------------- ticking
@@ -125,6 +147,9 @@ public class BallEntity extends Entity {
 
 	private void serverTick(ServerLevel level) {
 		BallSim sim = this.sim();
+		if (Float.isNaN(this.kickoff().x())) {
+			this.entityData.set(KICKOFF, sim.position().toVector3f()); // a ball saved before kickoff spots
+		}
 		this.updateOwner(level);
 		if (this.owner != null) {
 			// The owner's client simulates; states arrive through acceptOwnerState.
@@ -331,6 +356,12 @@ public class BallEntity extends Entity {
 			}
 			output.putIntArray("State", bits);
 		}
+		Vector3fc kickoff = this.kickoff();
+		if (!Float.isNaN(kickoff.x())) {
+			output.putFloat("KickoffX", kickoff.x());
+			output.putFloat("KickoffY", kickoff.y());
+			output.putFloat("KickoffZ", kickoff.z());
+		}
 	}
 
 	@Override
@@ -343,5 +374,6 @@ public class BallEntity extends Entity {
 			}
 			return s;
 		}).orElse(null);
+		this.entityData.set(KICKOFF, new Vector3f(input.getFloatOr("KickoffX", Float.NaN), input.getFloatOr("KickoffY", Float.NaN), input.getFloatOr("KickoffZ", Float.NaN)));
 	}
 }
