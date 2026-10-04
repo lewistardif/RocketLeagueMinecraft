@@ -153,20 +153,20 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 	static void submitModel(SubmitNodeCollector collector, PoseStack poseStack, RlModels.Model model, int light) {
 		for (RlModels.Part part : model.parts()) {
 			collector.submitCustomGeometry(poseStack, RenderTypes.entityCutout(part.texture()), (p, b) -> {
-				float[] pos = part.positions();
-				float[] nrm = part.normals();
+				float[] pos = PosedMesh.positions(p, part.positions());
+				float[] nrm = PosedMesh.normals(p, part.normals());
 				float[] uv = part.uvs();
 				int[] tri = part.triangles();
 				for (int t = 0; t + 2 < tri.length; t += 3) {
 					// Entity render types draw quads: a triangle is a quad with its last vertex repeated.
 					for (int k = 0; k < 4; k++) {
 						int v = tri[t + Math.min(k, 2)];
-						b.addVertex(p, pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
+						b.addVertex(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
 							.setColor(-1)
 							.setUv(uv[v * 2], uv[v * 2 + 1])
 							.setOverlay(OverlayTexture.NO_OVERLAY)
 							.setLight(light)
-							.setNormal(p, nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
+							.setNormal(nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
 					}
 				}
 			});

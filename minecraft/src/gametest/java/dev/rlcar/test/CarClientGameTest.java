@@ -52,7 +52,7 @@ public class CarClientGameTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
-		if (LookdevClientGameTest.enabled()) {
+		if (LookdevClientGameTest.enabled() || PerfClientGameTest.enabled()) {
 			return;
 		}
 		checkBindings(ctx);

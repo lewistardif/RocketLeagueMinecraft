@@ -468,20 +468,20 @@ public final class RlShading {
 			// The wheel's vertex colours (rl_car.vsh, RL_WHEEL): bit 8 = present, bit 9 = red (tyre).
 			float[] colors = folderName.equals("wheel") ? part.colors() : null;
 			collector.submitCustomGeometry(poseStack, types[i], (p, b) -> {
-				float[] pos = part.positions();
-				float[] nrm = part.normals();
+				float[] pos = PosedMesh.positions(p, part.positions());
+				float[] nrm = PosedMesh.normals(p, part.normals());
 				float[] uv = part.uvs();
 				int[] tri = part.triangles();
 				for (int t = 0; t + 2 < tri.length; t += 3) {
 					for (int k = 0; k < 4; k++) {
 						int v = tri[t + Math.min(k, 2)];
 						int vertexLight = colors == null ? packedLight : packedLight | 0x100 | (colors[v * 4] > 0.5F ? 0x200 : 0);
-						b.addVertex(p, pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
+						b.addVertex(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
 							.setColor(env.color)
 							.setUv(uv[v * 2], uv[v * 2 + 1])
 							.setUv1(env.uv1x, env.uv1y)
 							.setLight(vertexLight)
-							.setNormal(p, nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
+							.setNormal(nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
 					}
 				}
 			});

@@ -304,6 +304,8 @@ staying level while the car rolls, the rear view, the camera settings screen). I
 the client and the server, getting out hands it back), bumps a pig and demolishes a parked car that
 then respawns. It ends with a row of all 7 bodies, and saves screenshots to
 `build/run/clientGameTest/screenshots/`.
+`runClientGameTest -Prlcar.perf` instead plays the ball for half a minute on a walled pitch (vsync
+off) and logs the frame rate, particles and voices every second, to compare performance changes.
 
 ## Limitations
 

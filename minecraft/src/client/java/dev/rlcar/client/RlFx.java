@@ -1366,15 +1366,19 @@ public final class RlFx {
 			float[] v = b.v;
 			List<float[]> quads = b.quads;
 			SubmitNodeCollector.CustomGeometryRenderer geometry = (pose, buf) -> {
+				// Transformed into reused vectors (VertexConsumer's pose overloads allocate per vertex).
+				Vector3f at = new Vector3f();
+				Vector3f up = pose.transformNormal(0, 1, 0, new Vector3f());
 				for (float[] q : quads) {
 					for (int k = 0; k < 4; k++) {
 						int o = (int) q[k] * 11;
-						buf.addVertex(pose, v[o], v[o + 1], v[o + 2])
+						pose.pose().transformPosition(v[o], v[o + 1], v[o + 2], at);
+						buf.addVertex(at.x, at.y, at.z)
 							.setColor(argb(v[o + 7] / COLOR_SCALE, v[o + 8] / COLOR_SCALE, v[o + 9] / COLOR_SCALE, v[o + 10]))
 							.setUv(v[o + 3], v[o + 4])
 							.setUv1(Math.round(Math.clamp(v[o + 5], -32.0F, 32.0F) * 1000.0F), Math.round(Math.clamp(v[o + 6], -32.0F, 32.0F) * 1000.0F))
 							.setLight(0)
-							.setNormal(pose, 0, 1, 0);
+							.setNormal(up.x, up.y, up.z);
 					}
 				}
 			};
