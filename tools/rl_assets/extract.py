@@ -12,7 +12,9 @@ Pipeline
   4. read the default boost (flame cones, smoke trail) straight from the cooked objects (`boost.py`,
      `ue3.py`) into `boost/`;
   5. write the unbaked textures and parameter values that the Minecraft mod's ports of the game's
-     car material shaders use (`shading.py`): `materials.json` per car and the wheel, `shading/`.
+     car material shaders use (`shading.py`): `materials.json` per car and the wheel, `shading/`;
+  6. with --wwiser and --vgmstream: the car's sounds (engine, boost, jumps, dodges, landings, tyres,
+     impacts, supersonic) from the game's Wwise sound banks (`audio.py`) into `audio/`.
 
 Objects already exported to the work folder are not exported again.
 
@@ -20,6 +22,7 @@ Requirements: Python 3.9+ with numpy and Pillow, the .NET SDK (8+), UModel
 (https://www.gildor.org/en/projects/umodel) and RL-UPKSuite (https://github.com/Martinii89/RL-UPKSuite).
 
   python tools/rl_assets/extract.py --umodel <dir with umodel_64.exe> --upksuite <dir with Core.dll>
+      [--wwiser <wwiser.pyz> --vgmstream <vgmstream-cli.exe>]
 """
 
 from __future__ import annotations
@@ -37,7 +40,9 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from audio import PACKAGES as AUDIO_PACKAGES, Audio  # noqa: E402
 from boost import PACKAGES as BOOST_PACKAGES, Boost  # noqa: E402
+from fx import PACKAGES as FX_PACKAGES, FX  # noqa: E402
 from shading import ShadingWriter  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
@@ -113,6 +118,10 @@ def link_texture_caches(cooked: Path, out: Path) -> None:
 def umodel_export(umodel: Path, pkgs: Path, out: Path, package: str, obj: str, groups: bool = False) -> None:
     if not groups and (out / package).exists() and any((out / package).rglob(f"{obj}.*")):
         return  # exported by an earlier run
+    if not umodel.is_file():
+        # Re-running from an existing work folder without UModel: use what is there.
+        print(f"  (no UModel: {package}.{obj} was not exported earlier, skipped)")
+        return
     r = run([str(umodel), "-game=rocketleague", "-export", "-gltf", "-png", *(["-groups"] if groups else []), f"-out={out}", f"-path={pkgs}", package, obj])
     log = r.stdout + r.stderr
     if r.returncode != 0 or "*** ERROR" in log:
@@ -375,6 +384,8 @@ def main() -> None:
     ap.add_argument("--game", type=Path, default=DEFAULT_GAME, help="Rocket League install folder")
     ap.add_argument("--umodel", type=Path, required=True, help="folder with umodel_64.exe")
     ap.add_argument("--upksuite", type=Path, required=True, help="RL-UPKSuite release folder (Core.dll, keys.txt)")
+    ap.add_argument("--wwiser", type=Path, help="wwiser.pyz (https://github.com/bnnm/wwiser), for the sounds")
+    ap.add_argument("--vgmstream", type=Path, help="vgmstream-cli executable (https://github.com/vgmstream/vgmstream), for the sounds")
     ap.add_argument("--out", type=Path, default=REPO / "assets" / "rl")
     ap.add_argument("--work", type=Path, default=REPO / "target" / "rl_assets_work")
     args = ap.parse_args()
@@ -389,7 +400,7 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
     exe = build_decryptor(args.upksuite.resolve(), args.work.resolve())
-    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0], BALL[0]} | set(BOOST_PACKAGES)), pkgs)
+    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0], BALL[0]} | set(BOOST_PACKAGES) | set(AUDIO_PACKAGES) | set(FX_PACKAGES)), pkgs)
     link_texture_caches(cooked, pkgs)
 
     for preset, (package, mesh) in CARS.items():
@@ -436,6 +447,15 @@ def main() -> None:
     print("boost: flame cones, smoke trail")
     grouped = args.work / "export_groups"
     Boost(pkgs, args.out, CARS, lambda package, obj, kind: umodel_export_grouped(umodel, pkgs, grouped, package, obj, kind)).run()
+
+    print("fx: jump/dodge/supersonic/impact particles, camera shakes, rumble")
+    FX(pkgs, args.out, lambda package, obj, kind: umodel_export_grouped(umodel, pkgs, grouped, package, obj, kind)).run()
+
+    if args.wwiser and args.vgmstream:
+        print("audio: car sounds from the Wwise banks")
+        Audio(pkgs, cooked, args.out, args.work, args.wwiser.resolve(), args.vgmstream.resolve()).run()
+    else:
+        print("audio: skipped (pass --wwiser and --vgmstream to extract the car sounds)")
 
     (args.out / "README.txt").write_text(
         "Extracted from a local Rocket League install by tools/rl_assets/extract.py.\n"
