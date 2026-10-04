@@ -10,6 +10,7 @@
     "KeyBindsListPadMixin",
     "KeyBindsScreenMixin",
     "KeyboardInputMixin",
+    "LevelRendererMixin",
     "MinecraftMixin"
   ],
   "injectors": { "defaultRequire": 1 }

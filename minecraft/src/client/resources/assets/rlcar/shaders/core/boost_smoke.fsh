@@ -30,6 +30,10 @@ float sampleLinear(sampler2D s, vec2 uv) {
     return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
 }
 
+vec3 srgbToLinear(vec3 c) {
+    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
+}
+
 float linearToSrgb(float c) {
     return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055;
 }
@@ -46,6 +50,16 @@ void main() {
     float radial = sampleLinear(Sampler2, uv * 4.0);
 
     float alpha = clamp(a * b * radial * 48.0 - 0.25, 0.0, 1.0);
+    #ifdef FX_LINEAR
+    // Linear premultiplied light for the effects target (dev.rlcar.client.LinearFx), towards the
+    // fog colour as apply_fog does (in linear light).
+    vec3 rgb = (3.0 - alpha) * (a + b) * gradient * vertexColor.rgb * ColorModulator.rgb;
+    float fog = total_fog_value(sphericalVertexDistance, cylindricalVertexDistance, FogEnvironmentalStart, FogEnvironmentalEnd, FogRenderDistanceStart, FogRenderDistanceEnd);
+    rgb = mix(max(rgb, 0.0), srgbToLinear(FogColor.rgb), fog * FogColor.a);
+    float coverage = alpha * vertexColor.a * ColorModulator.a;
+    fragColor = vec4(rgb * coverage, coverage);
+    #else
+    // Minecraft blends sRGB values in its main target: converted first.
     vec3 rgb = clamp((3.0 - alpha) * (a + b) * gradient * vertexColor.rgb, 0.0, 1.0);
     vec4 color = vec4(linearToSrgb(rgb.r), linearToSrgb(rgb.g), linearToSrgb(rgb.b), alpha * vertexColor.a) * ColorModulator;
 
@@ -59,5 +73,6 @@ void main() {
     vec4 fogColor = FogColor;
     #endif
     fragColor = apply_fog(color, sphericalVertexDistance, cylindricalVertexDistance, FogEnvironmentalStart, FogEnvironmentalEnd, FogRenderDistanceStart, FogRenderDistanceEnd, fogColor);
+    #endif
     #endif
 }
