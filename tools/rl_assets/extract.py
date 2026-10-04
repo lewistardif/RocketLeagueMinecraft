@@ -113,6 +113,10 @@ def link_texture_caches(cooked: Path, out: Path) -> None:
 def umodel_export(umodel: Path, pkgs: Path, out: Path, package: str, obj: str, groups: bool = False) -> None:
     if not groups and (out / package).exists() and any((out / package).rglob(f"{obj}.*")):
         return  # exported by an earlier run
+    if not umodel.is_file():
+        # Re-running from an existing work folder without UModel: use what is there.
+        print(f"  (no UModel: {package}.{obj} was not exported earlier, skipped)")
+        return
     r = run([str(umodel), "-game=rocketleague", "-export", "-gltf", "-png", *(["-groups"] if groups else []), f"-out={out}", f"-path={pkgs}", package, obj])
     log = r.stdout + r.stderr
     if r.returncode != 0 or "*** ERROR" in log:
