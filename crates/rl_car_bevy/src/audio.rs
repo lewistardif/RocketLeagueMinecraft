@@ -1050,3 +1050,37 @@ impl Engine {
         (self.rpm - self.limiter, input)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn curve(points: &[(f32, f32, &str)]) -> Curve {
+        Curve::new(&points.iter().map(|(x, y, i)| (*x, *y, i.to_string())).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn curves_interpolate_like_wwise() {
+        let c = curve(&[(0.0, -4800.0, "Constant"), (125.0, -4800.0, "Linear"), (875.0, -1431.0, "Linear"), (2000.0, 0.0, "Linear")]);
+        assert_eq!(c.eval(-10.0), -4800.0);
+        assert_eq!(c.eval(100.0), -4800.0);
+        assert!((c.eval(500.0) - (-4800.0 + 3369.0 * 0.5)).abs() < 1e-3);
+        assert_eq!(c.eval(5000.0), 0.0);
+        // Constant segments hold their left value.
+        let s = curve(&[(0.0, 1.0, "Constant"), (0.5, 0.0, "Linear")]);
+        assert_eq!(s.eval(0.49), 1.0);
+    }
+
+    #[test]
+    fn db_scaled_curves_store_gain_minus_one() {
+        assert_eq!(gain_to_db(1.0 + -1.0), SILENT_DB);
+        assert!(gain_to_db(1.0 + 0.0).abs() < 1e-6);
+        assert!((gain_to_db(1.0 - 0.25) - (-2.4988)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn pitch_is_cents() {
+        assert!((cents_to_speed(1200.0) - 2.0).abs() < 1e-6);
+        assert!((cents_to_speed(-1200.0) - 0.5).abs() < 1e-6);
+    }
+}
