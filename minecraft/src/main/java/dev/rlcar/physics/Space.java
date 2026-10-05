@@ -44,6 +44,24 @@ public final class Space {
 		return new Vec3(origin.getX() + x / UU_PER_BLOCK, origin.getY() + z / UU_PER_BLOCK, origin.getZ() + y / UU_PER_BLOCK);
 	}
 
+	/** An RL direction or velocity (any unit) to Minecraft axes, divided by {@code scale}. */
+	public static Vec3 dirToMc(float x, float y, float z, float scale) {
+		return new Vec3(x / scale, z / scale, y / scale);
+	}
+
+	/** A Minecraft direction or velocity to RL axes, multiplied by {@code scale}. */
+	public static float[] dirToRl(Vec3 v, float scale) {
+		return new float[] {(float) (v.x * scale), (float) (v.z * scale), (float) (v.y * scale)};
+	}
+
+	/**
+	 * An RL angular velocity (rad/s) to Minecraft axes. Angular velocity is a pseudovector, so the
+	 * axis swap (a reflection) also flips its sign.
+	 */
+	public static Vec3 angularToMc(float x, float y, float z) {
+		return new Vec3(-x, -z, -y);
+	}
+
 	/**
 	 * Car orientation (RL columns forward, right, up) to the Minecraft rotation of a model built
 	 * with local +X forward, +Y up, +Z right.

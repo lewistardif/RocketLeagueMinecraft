@@ -45,14 +45,19 @@ static const CarConfig& PresetConfig(const std::string& name) {
 	return CAR_CONFIG_OCTANE;
 }
 
-static void WriteRow(FILE* f, int tick, const CarState& s) {
+static void WriteRow(FILE* f, int tick, CarState s, Ball* ball) {
 	fprintf(f, "%d", tick);
 	auto v = [&](const Vec& x) { fprintf(f, ",%.9g,%.9g,%.9g", x.x, x.y, x.z); };
 	v(s.pos); v(s.vel); v(s.angVel);
 	v(s.rotMat.forward); v(s.rotMat.right); v(s.rotMat.up);
-	fprintf(f, ",%.9g,%d,%d,%d,%d,%d,%d,%d,%d\n", s.boost, (int)s.isOnGround, (int)s.hasJumped,
+	fprintf(f, ",%.9g,%d,%d,%d,%d,%d,%d,%d,%d", s.boost, (int)s.isOnGround, (int)s.hasJumped,
 		(int)s.hasDoubleJumped, (int)s.hasFlipped,
 		(int)s.wheelsWithContact[0], (int)s.wheelsWithContact[1], (int)s.wheelsWithContact[2], (int)s.wheelsWithContact[3]);
+	if (ball) {
+		BallState b = ball->GetState();
+		v(b.pos); v(b.vel); v(b.angVel);
+	}
+	fprintf(f, "\n");
 }
 
 int main(int argc, char** argv) {
@@ -66,6 +71,8 @@ int main(int argc, char** argv) {
 	std::vector<std::pair<Vec, Vec>> planes;
 	CarState init = CarState();
 	std::vector<CtrlSeg> ctrls;
+	bool hasBall = false, hasCar = true;
+	BallState ballInit = BallState();
 
 	std::ifstream in(argv[1]);
 	if (!in) {
@@ -99,6 +106,12 @@ int main(int argc, char** argv) {
 			seg.c.jump = jump; seg.c.boost = boost; seg.c.handbrake = hb;
 			ctrls.push_back(seg);
 		}
+		else if (key == "ball") {
+			hasBall = true;
+			ss >> ballInit.pos.x >> ballInit.pos.y >> ballInit.pos.z >> ballInit.vel.x >> ballInit.vel.y >> ballInit.vel.z
+				>> ballInit.angVel.x >> ballInit.angVel.y >> ballInit.angVel.z;
+		}
+		else if (key == "nocar") hasCar = false;
 		else if (key == "name") {}
 		else {
 			fprintf(stderr, "unknown directive '%s'\n", key.c_str());
@@ -113,7 +126,10 @@ int main(int argc, char** argv) {
 	Arena* arena = Arena::Create(GameMode::THE_VOID, cfg, 120);
 
 	// No ball in the oracle world.
-	arena->_bulletWorld.removeRigidBody(&arena->ball->_rigidBody);
+	if (hasBall)
+		arena->ball->SetState(ballInit);
+	else
+		arena->_bulletWorld.removeRigidBody(&arena->ball->_rigidBody);
 
 	for (auto& pl : planes) {
 		auto* shape = new btStaticPlaneShape(btVector3(pl.second.x, pl.second.y, pl.second.z), 0);
@@ -125,29 +141,37 @@ int main(int argc, char** argv) {
 	// Use the steady-state value so tick 1 behaves like any other tick.
 	arena->_bulletWorld.getSolverInfo().m_timeStep = 1 / 120.f;
 
-	Car* car = arena->AddCar(Team::BLUE, PresetConfig(preset));
-	car->SetState(init);
+	Car* car = nullptr;
+	if (hasCar) {
+		car = arena->AddCar(Team::BLUE, PresetConfig(preset));
+		car->SetState(init);
+	}
 
 	FILE* out = fopen(argv[2], "w");
 	if (!out) {
 		fprintf(stderr, "cannot write %s\n", argv[2]);
 		return 1;
 	}
-	fprintf(out, "tick,px,py,pz,vx,vy,vz,wx,wy,wz,fx,fy,fz,rx,ry,rz,ux,uy,uz,boost,on_ground,has_jumped,has_double_jumped,has_flipped,c0,c1,c2,c3\n");
-	WriteRow(out, 0, car->GetState());
+	auto row = [&](int tick) {
+		WriteRow(out, tick, car ? car->GetState() : CarState(), hasBall ? arena->ball : nullptr);
+	};
+	fprintf(out, "tick,px,py,pz,vx,vy,vz,wx,wy,wz,fx,fy,fz,rx,ry,rz,ux,uy,uz,boost,on_ground,has_jumped,has_double_jumped,has_flipped,c0,c1,c2,c3%s\n",
+		hasBall ? ",bpx,bpy,bpz,bvx,bvy,bvz,bwx,bwy,bwz" : "");
+	row(0);
 
 	bool debug = getenv("ORACLE_DEBUG") != nullptr;
 	size_t seg = 0;
 	for (int t = 0; t < ticks; t++) {
 		while (seg + 1 < ctrls.size() && ctrls[seg + 1].from <= t) seg++;
-		car->controls = (!ctrls.empty() && ctrls[seg].from <= t) ? ctrls[seg].c : CarControls();
+		if (car)
+			car->controls = (!ctrls.empty() && ctrls[seg].from <= t) ? ctrls[seg].c : CarControls();
 		arena->Step(1);
-		WriteRow(out, t + 1, car->GetState());
+		row(t + 1);
 		if (debug) {
 			auto* d = arena->_bulletWorld.getDispatcher();
 			for (int i = 0; i < d->getNumManifolds(); i++) {
 				auto* m = d->getManifoldByIndexInternal(i);
-				fprintf(stderr, "tick %d manifold %d thr=%.6f n=%d:", t + 1, i, m->getContactBreakingThreshold(), m->getNumContacts());
+				fprintf(stderr, "tick %d manifold %d (%d,%d) thr=%.6f n=%d:", t + 1, i, m->getBody0()->getUserIndex(), m->getBody1()->getUserIndex(), m->getContactBreakingThreshold(), m->getNumContacts());
 				for (int j = 0; j < m->getNumContacts(); j++) {
 					auto& cp = m->getContactPoint(j);
 					fprintf(stderr, " [d=%.5f imp=%.4f life=%d A=(%.4f,%.4f,%.4f) lA=(%.4f,%.4f,%.4f)]", cp.getDistance(), cp.m_appliedImpulse, cp.getLifeTime(), cp.getPositionWorldOnA().x()*50, cp.getPositionWorldOnA().y()*50, cp.getPositionWorldOnA().z()*50, cp.m_localPointA.x()*50, cp.m_localPointA.y()*50, cp.m_localPointA.z()*50);

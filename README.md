@@ -19,8 +19,18 @@ the six hitbox presets, car-vs-world collision) as:
    through **RocketSim** (the open-source reference simulator) and through the core, then compares
    the two trajectories tick by tick.
 4. **`crates/rl_car_ffi`** + **`minecraft/`**: a C ABI over the core (for engines not written in
-   Rust), and a **Minecraft (Fabric 26.3)** mod that drives the same core through it. See
+   Rust), and a **Minecraft (Fabric 26.3)** mod that drives the same core through it, with the
+   ball, ball cam, and bumps and demolitions against cars and mobs. See
    [`minecraft/README.md`](minecraft/README.md).
+5. **`gta/`**: a **GTA V** (PC, story mode only) Script Hook V plugin that drives the same core
+   through the C ABI, with the ball, Rocket League's camera and ball cam, controller support, and
+   bumps and demolitions against GTA's cars and pedestrians. See [`gta/README.md`](gta/README.md).
+6. **`skyrim/`**: a **Skyrim Special Edition** (AE runtime) SKSE plugin that turns the Dragonborn into
+   the car, driving on Skyrim's collision copied out of Havok, with the ball, Rocket League's camera
+   and ball cam, and bumps and demolitions of Skyrim's NPCs. See [`skyrim/README.md`](skyrim/README.md).
+
+The core also simulates **the ball** (RocketSim's soccar ball, stepped together with the cars:
+`step_scene`), validated against RocketSim the same way as the car.
 
 ## Results
 
@@ -39,6 +49,11 @@ in [`validation/REPORT.md`](validation/REPORT.md). The larger body-contact error
 resting flat on its roof or a side, where which of four equally deep corners gets picked each tick
 depends on float noise. The documented tolerances are 0.25 uu / 0.25 uu/s / 0.05° for the first
 group and 2.5 uu / 25 uu/s / 2° for body contact. `cargo test` enforces them.
+
+Ball scenarios (drops, rolling, spin, wall and corner bounces, car hits, dodging into the ball, a
+pinch against a wall, the ball landing on the roof, wheels touching the ball) are compared against
+RocketSim with the ball in the world: 13 scenarios, ball within **0.03 uu** in all but one (wheels
+on the ball, 0.4 uu over 120 ticks), the car within 0.03 uu while touching the ball.
 
 The Bevy host was checked separately: driven through avian's spatial queries against the real
 arena colliders, the car's trajectory is bit-identical to the analytic `PlaneWorld` for the same
@@ -73,9 +88,9 @@ quarter-pipe, back wall, ceiling), saves four screenshots to `<dir>` and exits.
 
 ### The camera
 
-The camera is Rocket League's own car camera, rebuilt from the game's camera script
-(`CameraState_Car_TA` and `Camera_TA` in `TAGame.upk`) and the tuned values of its camera
-archetypes, in [`crates/rl_car_core/src/camera.rs`](crates/rl_car_core/src/camera.rs). It is
+The camera is Rocket League's own car camera and ball cam, rebuilt from the game's camera script
+(`CameraState_Car_TA`, `CameraState_BallCam_TA` and `Camera_TA` in `TAGame.upk`,
+`CameraStateBlender_X` in `ProjectX.upk`) and the tuned values of its camera archetypes, in [`crates/rl_car_core/src/camera.rs`](crates/rl_car_core/src/camera.rs). It is
 engine-agnostic (Rocket League space, no dependencies); the Bevy demo and the Minecraft mod both
 use it.
 
@@ -90,11 +105,17 @@ use it.
 - **Swivel**: the right stick orbits it around the car, up to 123° to each side (99° at 2500 uu/s
   and above), 30° up and 49° down. It eases there at the Swivel Speed setting and comes back twice
   as fast. Rear Camera turns it 180°.
+- **Ball cam** (hosts with a ball) turns towards the ball from exactly Height above the car, with
+  no lag. While the ball is within 22° of level it keeps the Angle setting and only turns; from
+  22° to 44° it eases into the ball's pitch and then follows 80% of it, raising its focus a
+  little the steeper the ball. Rear Camera in ball cam is the car camera turned around.
+  Switching either way eases out the difference over 0.5 s at Transition Speed 1, down to a cut
+  at 2.
 - **Settings**: Rocket League's FOV (horizontal, at 16:9), Distance, Height, Angle, Stiffness,
-  Swivel Speed and Invert Swivel Pitch, with the game's ranges and presets.
+  Swivel Speed, Transition Speed and Invert Swivel Pitch, with the game's ranges and presets.
 
-Not included: ball cam and free look (there is no ball to target), camera shake, and the bob from
-the car body's visual suspension. Like the game, the camera only keeps 10 uu above the floor and
+Not included: free look, camera shake, and the bob from the car body's visual suspension. The Bevy
+demo has no ball, so it only shows the car camera. Like the game, the camera only keeps 10 uu above the floor and
 can see through walls.
 
 ### Real Rocket League car models, boost and boost meter (optional)
@@ -116,6 +137,18 @@ It also extracts the default boost ("Standard"), shown on those cars exactly as 
   alpha curves, acceleration) and drawn with a port of `SmokePuff_Mat`'s compiled shader.
 - Not reproduced: the boost's lens flare and the glow it puts on the car body (both are drawn by
   engine code that is not in the packages), and the sound.
+
+**Sounds and effects** (also from your own install): `extract.py --wwiser <wwiser.pyz> --vgmstream <vgmstream-cli.exe>`
+extracts the car's Wwise sounds (engine/exhaust, boost loop and tail, jump, double jump, dodge, in-air
+whoosh, landings, tyres, body impacts and slide, supersonic enter + loop, empty-boost) and plays them
+through a small Wwise-graph player (`src/audio.rs`) driven by the RTPCs the game's native code sets
+(`Speed`, `RPM`, `Throttle_Input`, `WheelForwardSpeed`...). The engine RPM model is the one
+reconstructed part (the game computes it natively from the engine profile). The FX step extracts the
+supersonic speed streaks and wheel trails, jump/dodge smoke and ribbons, impact sparks, camera
+shakes and rumble; their materials are ports of the game's compiled shaders (found with
+`tools/rl_assets/shader_cache.py`). `--audio-log` logs sound events/levels, `--slowmo 0.1` slows the clock.
+The Minecraft mod plays the same sounds and effects (Java ports of both; see
+[`minecraft/README.md`](minecraft/README.md#sounds-and-effects)).
 
 The placeholder box car (and a real car when the boost was not extracted) gets a simple flickering
 flame cone instead.
@@ -150,10 +183,12 @@ and [RL-UPKSuite](https://github.com/Martinii89/RL-UPKSuite) (its decryptor, wra
 unless `--game` says otherwise. The work folder (`target/rl_assets_work`) hard-links the game's
 `Textures*.tfc` caches, so it must be on the same drive as the game.
 
-What you get is the game's geometry and texture maps. The game's material shaders, lighting and post-
-processing are not portable, so the extractor rebuilds each material for Bevy's PBR: team paint baked
-from the body's paint masks, clear coat, normal maps, headlight/tail-light masks as emissive. Expect it
-to look close to the game, not identical. The team colours are approximations (the game picks them from
+What you get is the game's geometry and texture maps. For the Bevy demo the extractor rebuilds each
+material for Bevy's PBR: team paint baked from the body's paint masks, clear coat, normal maps,
+headlight/tail-light masks as emissive. Expect it to look close to the game, not identical. The
+Minecraft mod goes further: it draws the cars with the game's own body, chassis and wheel material
+shaders, decompiled from the game's shader cache and translated to GLSL. The extractor writes their
+unbaked inputs (`materials.json` per car, `shading/`); see [`minecraft/README.md`](minecraft/README.md#car-materials). The team colours are approximations (the game picks them from
 a palette texture that is not extracted).
 
 Read Epic's EULA before doing this: it does not allow extracting the game's assets, and owning the game
@@ -243,7 +278,8 @@ the yaw sign: steering right in the core turns the car to its right in Bevy.
 
 ## Scope and known limitations
 
-- **Out of scope:** the ball, demolitions, car-car bumps, boost pads, teams and scoring.
+- **Out of scope:** contacts between two simulated cars, boost pads, teams and scoring. Rocket
+  League's bump and demolition rule is available (`bump`) for hosts to apply to their own entities.
 - The real arena meshes are game assets and are not included. The demo arena is a soccar-sized box
   with procedurally built quarter-pipes and ramps. Bullet's convex-vs-mesh behaviour (one new point
   per *triangle* per tick) is approximated as one point per *collider* by the avian host.
@@ -264,8 +300,13 @@ crates/rl_car_core/       physics core (no dependencies)
   src/world.rs            CollisionWorld trait, PlaneWorld
   src/stepper.rs          fixed 120 Hz accumulator
   src/maneuvers.rs        dodge / half-flip input scripts
-  src/camera.rs           Rocket League's car camera (presentation only)
+  src/camera.rs           Rocket League's car camera and ball cam (presentation only)
   src/boost_meter.rs      Rocket League's boost meter logic (presentation only)
+  src/ball.rs             the ball: rules and state
+  src/scene.rs            cars + ball in one tick (step_scene), car-ball contacts, extra hit impulse
+  src/island.rs           multi-body contact solver with RocketSim's averaged ball contacts
+  src/subsimplex.rs       Bullet's ray vs sphere cast (wheels on the ball)
+  src/bump.rs             Rocket League's bump / demolition rule
 crates/rl_car_bevy/       Bevy 0.19 demo + avian3d collision host
   src/visuals.rs          optional real car models (assets/rl), wheel anchors, mipmaps
   src/boost.rs            boost flame cones and smoke (the game's when extracted), simple flame
@@ -277,6 +318,8 @@ tools/rl_assets/          extractor for the real car models, boost and boost met
 crates/rl_car_validate/   scenarios, comparison, report, regression test
 crates/rl_car_ffi/        C ABI over the core + BoxWorld (seamless collision from voxel boxes)
 minecraft/                Fabric mod: car entity, renderer, camera, networking, tests
+gta/                      GTA V Script Hook V plugin (C++), build script, unit tests
+skyrim/                   Skyrim SE/AE SKSE plugin (C++, CommonLibSSE-NG), build script, unit tests
 oracle/                   RocketSim oracle (C++), build script
 validation/               scenario files, RocketSim traces, REPORT.md
 CONSTANTS.md              every constant with its source
@@ -304,6 +347,23 @@ MIT for this repository's code. The physics model follows RocketSim (MIT) and Bu
    for Minecraft 26.3. The jar only supports the platform it was built on.
 4. In game, use the RL Car item or `/rlcar spawn`.
 5. Without models it uses the box car.
+
+**GTA V (PC, story mode only)**
+
+1. Install Rust, Visual Studio 2022 with the C++ tools, CMake, and Script Hook V
+   (dev-c.com) in your GTA V folder. Set `SHV_SDK` to the Script Hook V SDK folder.
+2. Run `gta\build.bat`. It builds everything and stages it in `gta\stage`.
+3. Copy the contents of `gta\stage` into your GTA V folder and start story mode.
+4. Press F9 to become the car. See [`gta/README.md`](gta/README.md).
+
+**Skyrim Special Edition (AE runtime 1.6/1.7)**
+
+1. Install Rust, Visual Studio 2022 or newer with the C++ tools, and git; in Skyrim, SKSE64 and the
+   Address Library for SKSE Plugins.
+2. Run `skyrim\build.bat`. It builds everything (CommonLibSSE-NG and its vcpkg dependencies the first
+   time) and stages it in `skyrim\stage` with the Mod Organizer layout.
+3. Install `skyrim\stage` as a mod and start Skyrim through SKSE.
+4. Press F7 to become the car. See [`skyrim/README.md`](skyrim/README.md).
 
 **Optional: real car models**
 

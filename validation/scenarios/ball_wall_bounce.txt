@@ -1,0 +1,13 @@
+# Ball hitting a wall at an angle, then the floor.
+name ball_wall_bounce
+preset octane
+ticks 300
+plane 0 0 0 0 0 1
+plane 1500 0 0 -1 0 0
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ball 0 0 300 2000 500 300 1 -2 0
+nocar

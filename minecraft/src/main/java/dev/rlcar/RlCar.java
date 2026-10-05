@@ -1,7 +1,9 @@
 package dev.rlcar;
 
 import dev.rlcar.command.CarCommand;
+import dev.rlcar.entity.BallEntity;
 import dev.rlcar.entity.CarEntity;
+import dev.rlcar.item.BallItem;
 import dev.rlcar.item.CarItem;
 import dev.rlcar.net.CarNet;
 import dev.rlcar.physics.RlCarNative;
@@ -57,9 +59,27 @@ public final class RlCar implements ModInitializer {
 			.build(CAR_KEY)
 	);
 
+	public static final ResourceKey<EntityType<?>> BALL_KEY = ResourceKey.create(Registries.ENTITY_TYPE, id("ball"));
+	public static final EntityType<BallEntity> BALL = Registry.register(
+		BuiltInRegistries.ENTITY_TYPE,
+		BALL_KEY,
+		EntityType.Builder.<BallEntity>of(BallEntity::new, MobCategory.MISC)
+			// The entity box is the ball (Rocket League's radius, 91.25 uu).
+			.sized(BallEntity.RADIUS * 2, BallEntity.RADIUS * 2)
+			.clientTrackingRange(10)
+			// Vanilla position sync is ignored by the client (balls send their own poses).
+			.updateInterval(20)
+			.build(BALL_KEY)
+	);
+
 	public static final ResourceKey<Item> CAR_ITEM_KEY = ResourceKey.create(Registries.ITEM, id("car"));
 	public static final Item CAR_ITEM = Registry.register(
 		BuiltInRegistries.ITEM, CAR_ITEM_KEY, new CarItem(new Item.Properties().setId(CAR_ITEM_KEY).stacksTo(1))
+	);
+
+	public static final ResourceKey<Item> BALL_ITEM_KEY = ResourceKey.create(Registries.ITEM, id("ball"));
+	public static final Item BALL_ITEM = Registry.register(
+		BuiltInRegistries.ITEM, BALL_ITEM_KEY, new BallItem(new Item.Properties().setId(BALL_ITEM_KEY).stacksTo(16))
 	);
 
 	public static Identifier id(String path) {
@@ -71,11 +91,16 @@ public final class RlCar implements ModInitializer {
 		RlCarNative.init();
 		CarNet.init();
 		CommandRegistrationCallback.EVENT.register((dispatcher, context, selection) -> CarCommand.register(dispatcher));
-		CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.TOOLS_AND_UTILITIES).register(out -> out.insertAfter(Items.MINECART, CAR_ITEM));
+		CreativeModeTabEvents.modifyOutputEvent(CreativeModeTabs.TOOLS_AND_UTILITIES).register(out -> {
+			out.insertAfter(Items.MINECART, CAR_ITEM);
+			out.insertAfter(CAR_ITEM, BALL_ITEM);
+		});
 
 		EntityTrackingEvents.START_TRACKING.register((entity, player) -> {
 			if (entity instanceof CarEntity car) {
 				car.onStartTracking(player);
+			} else if (entity instanceof BallEntity ball) {
+				ball.onStartTracking(player);
 			}
 		});
 

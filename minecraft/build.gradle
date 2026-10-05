@@ -111,4 +111,16 @@ loom.runs.configureEach {
 	if (name == "client" || name == "clientGameTest") {
 		property "rlcar.assets", new File(rootDir.parentFile, "assets/rl").absolutePath
 	}
+	// Development switches: `-Prlcar.lookdev` (car material close-ups instead of the drive test),
+	// `-Prlcar.shadingDebug=<n>` (the car shaders output one lighting term, see rl_env.glsl),
+	// `-Prlcar.perf` (half a minute of playing the ball, logging the frame rate),
+	// `-Prlcar.audioLog` (the driven car's sound parameters and voices, twice a second),
+	// `-Prlcar.srgbFx` (the car effects blended in sRGB, as before the linear effects pass, to compare).
+	if (name == "client" || name == "clientGameTest") {
+		for (String key : ["rlcar.lookdev", "rlcar.perf", "rlcar.shadingDebug", "rlcar.audioLog", "rlcar.srgbFx"]) {
+			if (project.hasProperty(key)) {
+				property key, project.property(key).toString()
+			}
+		}
+	}
 }

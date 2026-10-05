@@ -67,6 +67,11 @@ public final class RlBoost {
 	private static @Nullable OitPipelineSet flameOit;
 	private static @Nullable RenderPipeline smokePipeline;
 	private static @Nullable OitPipelineSet smokeOit;
+	/** The two pipelines drawing linear light for {@link LinearFx}, and their textures. */
+	private static @Nullable RenderPipeline flameLinear;
+	private static @Nullable RenderPipeline smokeLinear;
+	private static List<LinearFx.Tex> flameTextures = List.of();
+	private static List<LinearFx.Tex> smokeTextures = List.of();
 	private static @Nullable RenderType flameType;
 	private static @Nullable RenderType smokeType;
 	private static boolean typesFailed;
@@ -78,7 +83,7 @@ public final class RlBoost {
 	// ----------------------------------------------------------------------------- data
 
 	/** A cooked UE3 distribution: a lookup table sampled like {@code FRawDistribution::GetValue}, or a uniform random range. */
-	private record Dist(float @Nullable [] table, boolean random, int chunk, float timeScale, float startTime, int dim, float @Nullable [] min, float @Nullable [] max) {
+	record Dist(float @Nullable [] table, boolean random, int chunk, float timeScale, float startTime, int dim, float @Nullable [] min, float @Nullable [] max) {
 		static @Nullable Dist of(@Nullable JsonElement e) {
 			if (e == null || !e.isJsonObject()) {
 				return null;
@@ -295,6 +300,11 @@ public final class RlBoost {
 			.withLocation(RlCar.id("pipeline/boost_flame"))
 			.withColorTargetState(new ColorTargetState(BlendFunction.ADDITIVE))
 			.build());
+		flameLinear = RenderPipelines.register(RenderPipeline.builder(RenderPipelines.MATRICES_FOG_SNIPPET, flameBase)
+			.withLocation(RlCar.id("pipeline/boost_flame_linear"))
+			.withShaderDefine("FX_LINEAR")
+			.withColorTargetState(LinearFx.TARGET)
+			.build());
 		flameOit = RenderPipelines.register(OitPipelineSet.builder("rlcar_boost_flame", RenderPipeline.builder(flameBase)
 			.withBindGroupLayout(BindGroupLayouts.DYNAMIC_TRANSFORMS)
 			.withBindGroupLayout(BindGroupLayouts.FOG)
@@ -313,6 +323,11 @@ public final class RlBoost {
 		smokePipeline = RenderPipelines.register(RenderPipeline.builder(RenderPipelines.MATRICES_FOG_SNIPPET, smokeBase)
 			.withLocation(RlCar.id("pipeline/boost_smoke"))
 			.withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+			.build());
+		smokeLinear = RenderPipelines.register(RenderPipeline.builder(RenderPipelines.MATRICES_FOG_SNIPPET, smokeBase)
+			.withLocation(RlCar.id("pipeline/boost_smoke_linear"))
+			.withShaderDefine("FX_LINEAR")
+			.withColorTargetState(LinearFx.TARGET)
 			.build());
 		smokeOit = RenderPipelines.register(OitPipelineSet.builder("rlcar_boost_smoke", RenderPipeline.builder(smokeBase)
 			.withBindGroupLayout(BindGroupLayouts.DYNAMIC_TRANSFORMS)
@@ -341,6 +356,11 @@ public final class RlBoost {
 				.withTexture("Sampler2", RlModels.texture(d.smokeTextures[2]))
 				.sortOnUpload()
 				.createRenderSetup());
+			flameTextures = List.of(new LinearFx.Tex("Sampler0", RlModels.texture(d.flameTextures[0]), null),
+				new LinearFx.Tex("Sampler1", RlModels.texture(d.flameTextures[1]), null));
+			smokeTextures = List.of(new LinearFx.Tex("Sampler0", RlModels.texture(d.smokeTextures[0]), null),
+				new LinearFx.Tex("Sampler1", RlModels.texture(d.smokeTextures[1]), null),
+				new LinearFx.Tex("Sampler2", RlModels.texture(d.smokeTextures[2]), null));
 			return true;
 		} catch (IOException e) {
 			RlCar.LOG.error("RL Car: cannot load the boost textures; using the simple boost flame", e);
@@ -352,7 +372,7 @@ public final class RlBoost {
 	// ----------------------------------------------------------------------------- particles
 
 	/** Small xorshift generator (particles only need cheap uniform randoms). */
-	private static final class Rng {
+	static final class Rng {
 		private int s = 0x9E3779B9;
 
 		float next() {
@@ -592,25 +612,31 @@ public final class RlBoost {
 		if (d == null || !renderTypes(d)) {
 			return;
 		}
+		boolean linear = LinearFx.active() && flameLinear != null;
 		for (RlModels.Part part : cones.parts()) {
-			collector.submitCustomGeometry(poseStack, flameType, (p, b) -> {
-				float[] pos = part.positions();
-				float[] nrm = part.normals();
+			SubmitNodeCollector.CustomGeometryRenderer geometry = (p, b) -> {
+				float[] pos = PosedMesh.positions(p, part.positions());
+				float[] nrm = PosedMesh.normals(p, part.normals());
 				float[] uv = part.uvs();
 				float[] uv1 = part.uvs1();
 				int[] tri = part.triangles();
 				for (int t = 0; t + 2 < tri.length; t += 3) {
 					for (int k = 0; k < 4; k++) {
 						int v = tri[t + Math.min(k, 2)];
-						b.addVertex(p, pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
+						b.addVertex(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
 							.setColor(-1)
 							.setUv(uv[v * 2], uv[v * 2 + 1])
 							.setUv1(Math.round(uv1[v * 2] * 1000.0F), 0)
 							.setLight(0)
-							.setNormal(p, nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
+							.setNormal(nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
 					}
 				}
-			});
+			};
+			if (linear) {
+				LinearFx.submit(flameLinear, flameTextures, poseStack, geometry);
+			} else {
+				collector.submitCustomGeometry(poseStack, flameType, geometry);
+			}
 		}
 	}
 
@@ -634,7 +660,10 @@ public final class RlBoost {
 			dist[i] = dx * dx + dy * dy + dz * dz;
 		}
 		java.util.Arrays.sort(order, (a, b) -> Float.compare(dist[b], dist[a]));
-		collector.submitCustomGeometry(poseStack, smokeType, (p, b) -> {
+		SubmitNodeCollector.CustomGeometryRenderer geometry = (p, b) -> {
+			// Transformed into reused vectors (VertexConsumer's pose overloads allocate per vertex).
+			Vector3f at = new Vector3f();
+			Vector3f normal = p.transformNormal(0, 1, 0, new Vector3f());
 			for (int i : order) {
 				int o = i * SMOKE_STRIDE;
 				float half = s[o + 3] * 0.5F;
@@ -645,16 +674,22 @@ public final class RlBoost {
 				float u0 = (cell % cols) / (float) cols, v0 = (cell / cols) / (float) rows, du = 1.0F / cols, dv = 1.0F / rows;
 				int argb = argb(s[o + 4], s[o + 5], s[o + 6], s[o + 7]);
 				float x = s[o], y = s[o + 1], z = s[o + 2];
-				smokeVertex(b, p, x - rx + ux, y - ry + uy, z - rz + uz, u0, v0, argb);
-				smokeVertex(b, p, x - rx - ux, y - ry - uy, z - rz - uz, u0, v0 + dv, argb);
-				smokeVertex(b, p, x + rx - ux, y + ry - uy, z + rz - uz, u0 + du, v0 + dv, argb);
-				smokeVertex(b, p, x + rx + ux, y + ry + uy, z + rz + uz, u0 + du, v0, argb);
+				smokeVertex(b, p, at, normal, x - rx + ux, y - ry + uy, z - rz + uz, u0, v0, argb);
+				smokeVertex(b, p, at, normal, x - rx - ux, y - ry - uy, z - rz - uz, u0, v0 + dv, argb);
+				smokeVertex(b, p, at, normal, x + rx - ux, y + ry - uy, z + rz - uz, u0 + du, v0 + dv, argb);
+				smokeVertex(b, p, at, normal, x + rx + ux, y + ry + uy, z + rz + uz, u0 + du, v0, argb);
 			}
-		});
+		};
+		if (LinearFx.active() && smokeLinear != null) {
+			LinearFx.submit(smokeLinear, smokeTextures, poseStack, geometry);
+		} else {
+			collector.submitCustomGeometry(poseStack, smokeType, geometry);
+		}
 	}
 
-	private static void smokeVertex(VertexConsumer b, PoseStack.Pose p, float x, float y, float z, float u, float v, int argb) {
-		b.addVertex(p, x, y, z).setColor(argb).setUv(u, v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(0).setNormal(p, 0, 1, 0);
+	private static void smokeVertex(VertexConsumer b, PoseStack.Pose p, Vector3f at, Vector3f normal, float x, float y, float z, float u, float v, int argb) {
+		p.pose().transformPosition(x, y, z, at);
+		b.addVertex(at.x, at.y, at.z).setColor(argb).setUv(u, v).setOverlay(OverlayTexture.NO_OVERLAY).setLight(0).setNormal(normal.x, normal.y, normal.z);
 	}
 
 	private static int argb(float r, float g, float b, float a) {

@@ -28,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
+from cascade import Cascade, instance_params, ref, vec
 from ue3 import Package
 
 BOOST_PACKAGE = "Boost_Standard_SF"
@@ -60,14 +61,6 @@ BODIES = {
 PACKAGES = sorted({BOOST_PACKAGE, "Startup", "Engine"} | {b[0] for b in BODIES.values()})
 
 
-def ref(v) -> str | None:
-    return v.get("__ref__") if isinstance(v, dict) else None
-
-
-def vec(v, default=(0.0, 0.0, 0.0)) -> list[float]:
-    return list(v["v"]) if isinstance(v, dict) and "v" in v else list(default)
-
-
 def ue_to_model(v) -> list[float]:
     """UE car space (X fwd, Y right, Z up, uu) -> car model space (X fwd, Y up, Z right, m)."""
     return [v[0] / 100.0, v[2] / 100.0, v[1] / 100.0]
@@ -84,22 +77,16 @@ def rotator_matrix(pitch: int, yaw: int, roll: int) -> np.ndarray:
     ])
 
 
-class Boost:
+class Boost(Cascade):
     def __init__(self, pkgs: Path, out: Path, cars: dict, export_fn):
         """`cars`: preset -> (package, skeletal mesh) of the extracted car models.
         `export_fn(package, object, out_dir)` exports one object with UModel (glTF / PNG, by group)."""
-        self.pkgs = pkgs
+        super().__init__(pkgs)
         self.out = out
         self.dir = out / "boost"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.cars = cars
         self.export = export_fn
-        self.cache: dict[str, Package] = {}
-
-    def pkg(self, name: str) -> Package:
-        if name not in self.cache:
-            self.cache[name] = Package.open(self.pkgs / f"{name}.upk")
-        return self.cache[name]
 
     def run(self) -> None:
         data = {
@@ -222,53 +209,6 @@ class Boost:
                 raise SystemExit(f"{system}: module {cls} is not supported")
         return e
 
-    def module(self, p: Package, path: str) -> tuple[str, dict]:
-        """Module class and properties, over the class defaults (cooking drops unchanged values)."""
-        cls = p.class_name(p.export_at(path))
-        props = dict(self.pkg("Engine").props_at(f"Default__{cls}"))
-        for k, v in p.props_at(path).items():
-            # Struct members left at their default are not saved either (e.g. a lookup table).
-            props[k] = {**props[k], **v} if isinstance(v, dict) and isinstance(props.get(k), dict) else v
-        return cls.removeprefix("ParticleModule"), props
-
-    def dist(self, p: Package, raw, dim: int, params: dict) -> dict | None:
-        """A cooked RawDistribution: its lookup table, or a particle parameter resolved to the value
-        the boost sets (`{"min", "max"}`: uniform random per particle and component)."""
-        if not isinstance(raw, dict):
-            return None
-        dist_path = ref(raw.get("Distribution"))
-        if dist_path:
-            # UDistribution{Float,Vector}ParticleParameter: the instance parameter (or `Constant` when
-            # it is not set), per component either used directly or remapped (DPM_Normal) from
-            # [MinInput, MaxInput] to [MinOutput, MaxOutput], clamped.
-            dp = p.props_at(dist_path)
-            name = dp.get("ParameterName")
-            per = lambda key, default: (vec(dp[key]) if isinstance(dp.get(key), dict) else [dp.get(key, default)] * 3)[:dim]
-            modes = dp.get("ParamModes") or {}
-            mode = [dp.get("ParamMode") or modes.get(i, "DPM_Normal") for i in range(dim)]
-            if any(m not in ("DPM_Direct", "DPM_Normal") for m in mode):
-                raise SystemExit(f"particle parameter {name}: mode {mode} is not supported")
-            in0, in1, out0, out1 = per("MinInput", 0.0), per("MaxInput", 1.0), per("MinOutput", 0.0), per("MaxOutput", 1.0)
-
-            def remap(v: list[float]) -> list[float]:
-                return [x if m == "DPM_Direct" else o0 + (o1 - o0) * min(max((x - i0) / (i1 - i0), 0.0), 1.0)
-                        for x, m, i0, i1, o0, o1 in zip(v, mode, in0, in1, out0, out1)]
-
-            if name in params:
-                lo, hi = params[name]["min"][:dim], params[name]["max"][:dim]
-            else:
-                c = dp.get("Constant", 0.0)
-                lo = hi = (vec(c) if isinstance(c, dict) else [c] * 3)[:dim]
-            return {"min": remap(lo), "max": remap(hi)}
-        return {
-            "table": raw["LookupTable"][2:],
-            "random": raw.get("Op", 1) == 2,
-            "chunk": raw.get("LookupTableChunkSize", dim),
-            "time_scale": raw.get("LookupTableTimeScale", 0.0),
-            "start_time": raw.get("LookupTableStartTime", 0.0),
-            "dim": dim,
-        }
-
     # ------------------------------------------------------------------------------ per car
 
     def car(self, preset: str) -> dict:
@@ -352,23 +292,6 @@ class Boost:
             uv1.append(t1)
             idx.append(accessor(g, buf, prim["indices"]).reshape(-1).astype(np.uint32) + base)
         write_gltf(dst, np.concatenate(pos), np.concatenate(nrm), np.concatenate(uv0), np.concatenate(uv1), np.concatenate(idx))
-
-
-def instance_params(params) -> dict:
-    """Particle instance parameters (`ParticleSysParam`) -> {"min", "max"} vectors."""
-    out = {}
-    for ip in params or []:
-        kind = ip.get("ParamType", "PSPT_None")
-        hi, lo = vec(ip.get("Vector")), vec(ip.get("Vector_Low"))
-        if kind == "PSPT_Scalar":
-            out[ip["Name"]] = {"min": [ip.get("Scalar", 0.0)], "max": [ip.get("Scalar", 0.0)]}
-        elif kind == "PSPT_ScalarRand":
-            out[ip["Name"]] = {"min": [ip.get("Scalar_Low", 0.0)], "max": [ip.get("Scalar", 0.0)]}
-        elif kind == "PSPT_Vector":
-            out[ip["Name"]] = {"min": hi, "max": hi}
-        elif kind == "PSPT_VectorRand":
-            out[ip["Name"]] = {"min": lo, "max": hi}
-    return out
 
 
 def accessor(g: dict, buf: bytes, index: int) -> np.ndarray:

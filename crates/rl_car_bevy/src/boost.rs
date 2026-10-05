@@ -116,13 +116,13 @@ struct SpawnPerUnit {
 /// uniform random range (a particle parameter the boost sets).
 #[derive(Deserialize, Clone)]
 #[serde(untagged)]
-enum Dist {
+pub(crate) enum Dist {
     Table { table: Vec<f32>, random: bool, chunk: usize, time_scale: f32, start_time: f32, dim: usize },
     Range { min: Vec<f32>, max: Vec<f32> },
 }
 
 impl Dist {
-    fn sample(&self, time: f32, rng: &mut Rng) -> [f32; 3] {
+    pub(crate) fn sample(&self, time: f32, rng: &mut Rng) -> [f32; 3] {
         let mut out = [0.0; 3];
         match self {
             Dist::Table { table, random, chunk, time_scale, start_time, dim } => {
@@ -150,7 +150,7 @@ impl Dist {
         out
     }
 
-    fn scalar(&self, time: f32, rng: &mut Rng) -> f32 {
+    pub(crate) fn scalar(&self, time: f32, rng: &mut Rng) -> f32 {
         self.sample(time, rng)[0]
     }
 }
@@ -361,10 +361,10 @@ fn empty_smoke_mesh() -> Mesh {
 // ------------------------------------------------------------------------------------ particles
 
 /// Small xorshift generator (particles only need cheap uniform randoms).
-struct Rng(u32);
+pub(crate) struct Rng(pub(crate) u32);
 
 impl Rng {
-    fn next(&mut self) -> f32 {
+    pub(crate) fn next(&mut self) -> f32 {
         let mut x = self.0;
         x ^= x << 13;
         x ^= x >> 17;

@@ -3,6 +3,7 @@
 /oracle/RocketSim
 *.exe
 *.pdb
+__pycache__/
 /validation/*.core.csv
 
 # Extracted Rocket League assets (tools/rl_assets/extract.py): local use only, never commit.
@@ -14,3 +15,13 @@
 /minecraft/run/
 /minecraft/run-selftest/
 notify.log
+
+# GTA port: build output, staging, local SDK copy
+/gta/build/
+/gta/stage/
+/gta/third_party/
+
+# Skyrim port: build output, staging, local vcpkg
+/skyrim/build/
+/skyrim/stage/
+/skyrim/.tools/

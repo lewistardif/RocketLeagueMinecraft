@@ -2,6 +2,7 @@ package dev.rlcar.client.mixin;
 
 import dev.rlcar.client.ChaseCamera;
 import dev.rlcar.client.ClientDriving;
+import dev.rlcar.client.RlFx;
 import dev.rlcar.physics.CarPose;
 import dev.rlcar.physics.CarSim;
 import net.minecraft.client.Camera;
@@ -73,7 +74,7 @@ public abstract class CameraMixin {
 		if (type == CameraType.FIRST_PERSON) {
 			view = ChaseCamera.hood(pose);
 		} else if (type == CameraType.THIRD_PERSON_BACK) {
-			view = ChaseCamera.chase(mc, sim);
+			view = ChaseCamera.chase(mc, sim, partialTicks);
 		} else {
 			return;
 		}
@@ -88,7 +89,22 @@ public abstract class CameraMixin {
 			UP.rotate(this.rotation, this.up);
 			LEFT.rotate(this.rotation, this.left);
 		}
-		this.setPosition(view.position());
+		// Rocket League's camera shakes (jumps, landings, impacts, boost), in the camera's own frame:
+		// UE pitch up / yaw right / roll, and an offset forward / right / up (uu).
+		Vector3f shakeRot = RlFx.shakeRotation();
+		Vector3f shakeLoc = RlFx.shakeLocation();
+		Vec3 position = view.position();
+		if (shakeRot.lengthSquared() > 0 || shakeLoc.lengthSquared() > 0) {
+			this.rotation.rotateY(-shakeRot.y).rotateX(shakeRot.x).rotateZ(-shakeRot.z);
+			FORWARDS.rotate(this.rotation, this.forwards);
+			UP.rotate(this.rotation, this.up);
+			LEFT.rotate(this.rotation, this.left);
+			position = position.add(
+				(this.forwards.x() * shakeLoc.x - this.left.x() * shakeLoc.y + this.up.x() * shakeLoc.z) / 100.0,
+				(this.forwards.y() * shakeLoc.x - this.left.y() * shakeLoc.y + this.up.y() * shakeLoc.z) / 100.0,
+				(this.forwards.z() * shakeLoc.x - this.left.z() * shakeLoc.y + this.up.z() * shakeLoc.z) / 100.0);
+		}
+		this.setPosition(position);
 	}
 
 	@Inject(method = "calculateFov", at = @At("RETURN"), cancellable = true)

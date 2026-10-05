@@ -1,0 +1,13 @@
+# Car jumps and boosts into a ball hanging in the air.
+name car_jump_hit
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ctrl 0 1 0 0 0 0 1 1 0
+ctrl 20 1 0 0 0 0 0 1 0
+ball 500 0 300 0 0 0 0 0 0

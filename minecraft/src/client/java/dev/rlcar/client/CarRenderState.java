@@ -7,6 +7,8 @@ import org.jspecify.annotations.Nullable;
 public class CarRenderState extends EntityRenderState {
 	public @Nullable CarPose pose;
 	public int preset;
+	/** The car entity (its effects are drawn with it). */
+	public int carId;
 	public int color;
 	/** Hitbox in blocks: length, width, height, then the box centre offset forward, right, up. */
 	public float[] hitbox = new float[6];

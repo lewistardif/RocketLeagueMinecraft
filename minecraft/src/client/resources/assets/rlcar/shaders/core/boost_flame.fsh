@@ -76,8 +76,14 @@ void main() {
     vec3 rgb = sparks * c + base;
     float alpha = clamp((sparks + facing) * OPACITY, 0.0, 1.0);
 
-    // The game adds alpha * rgb (linear light); Minecraft blends in sRGB space.
-    vec3 added = clamp(alpha * rgb, 0.0, 1.0) * (1.0 - total_fog_value(sphericalVertexDistance, cylindricalVertexDistance, FogEnvironmentalStart, FogEnvironmentalEnd, FogRenderDistanceStart, FogRenderDistanceEnd));
+    // The game adds alpha * rgb (linear light), faded out here in the fog.
+    float fog = total_fog_value(sphericalVertexDistance, cylindricalVertexDistance, FogEnvironmentalStart, FogEnvironmentalEnd, FogRenderDistanceStart, FogRenderDistanceEnd);
+    #ifdef FX_LINEAR
+    // Linear premultiplied light for the effects target (dev.rlcar.client.LinearFx): adds, alpha 0.
+    fragColor = vec4(max(alpha * rgb, 0.0) * ColorModulator.rgb * (1.0 - fog), 0.0);
+    #else
+    // Minecraft blends sRGB values in its main target: converted first.
+    vec3 added = clamp(alpha * rgb, 0.0, 1.0) * (1.0 - fog);
     vec4 color = vec4(linearToSrgb(added.r), linearToSrgb(added.g), linearToSrgb(added.b), 1.0) * ColorModulator;
 
     #ifdef OIT_ALPHA_ONLY
@@ -86,5 +92,6 @@ void main() {
     fragColor = sampleColorForAccumulation(color);
     #else
     fragColor = color;
+    #endif
     #endif
 }

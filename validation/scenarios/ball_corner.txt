@@ -1,0 +1,13 @@
+# Ball driven into the corner between floor and wall (two surfaces at once).
+name ball_corner
+preset octane
+ticks 240
+plane 0 0 0 0 0 1
+plane 1500 0 0 -1 0 0
+pos 0 0 17
+vel 0 0 0
+angvel 0 0 0
+rot 1 0 0 0 1 0 0 0 1
+boost 100
+ball 1300 0 120 2500 0 -400 0 4 0
+nocar

@@ -1,7 +1,9 @@
 {
   "item.rlcar.car": "RL Car",
+  "item.rlcar.ball": "RL Ball",
   "rlcar.onboard": "Press %s to get out",
   "entity.rlcar.car": "RL Car",
+  "entity.rlcar.ball": "RL Ball",
   "key.category.rlcar.car": "RL Car",
   "key.category.rlcar.controller": "RL Car (Controller)",
   "key.rlcar.throttle": "Throttle",
@@ -19,6 +21,7 @@
   "key.rlcar.boost": "Boost",
   "key.rlcar.powerslide": "Powerslide (Drift)",
   "key.rlcar.rear_camera": "Rear Camera",
+  "key.rlcar.ball_cam": "Ball Cam",
   "key.rlcar.reset": "Reset Car",
   "key.rlcar.exit": "Get Out of Car",
   "rlcar.camera.open": "RL Car Camera...",
@@ -42,6 +45,8 @@
   "rlcar.camera.stiffness.tooltip": "How rigidly the camera follows the car: lower lets it lag behind and pull back at speed.",
   "rlcar.camera.swivel_speed": "Swivel Speed",
   "rlcar.camera.swivel_speed.tooltip": "How fast the controller's right stick turns the camera around the car.",
+  "rlcar.camera.transition_speed": "Transition Speed",
+  "rlcar.camera.transition_speed.tooltip": "How fast the camera turns to and from the ball when Ball Cam is switched.",
   "rlcar.camera.invert_swivel_pitch": "Invert Swivel Pitch",
   "rlcar.camera.rear_camera_toggle": "Rear Camera Toggle",
   "rlcar.camera.rear_camera_toggle.tooltip": "Off: Rear Camera looks behind while held. On: each press of Rear Camera switches between looking behind and forward."

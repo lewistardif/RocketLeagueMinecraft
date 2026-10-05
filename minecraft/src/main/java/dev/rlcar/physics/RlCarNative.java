@@ -35,7 +35,7 @@ import net.fabricmc.loader.api.FabricLoader;
  */
 public final class RlCarNative {
 	/** Must match {@code rl_car_ffi::ABI_VERSION}. */
-	public static final int ABI_VERSION = 4;
+	public static final int ABI_VERSION = 6;
 	/** Must match {@code rl_car_ffi::POSE_FLOATS}. */
 	public static final int POSE_FLOATS = 40;
 	/** Must match {@code rl_car_ffi::CAMERA_SETTINGS_FLOATS}. */
@@ -43,6 +43,11 @@ public final class RlCarNative {
 	/** Must match {@code rl_car_ffi::CAMERA_VIEW_FLOATS}. */
 	public static final int CAMERA_VIEW_FLOATS = 17;
 	public static final int CAMERA_REAR_VIEW = 1;
+	public static final int CAMERA_BALL_CAM = 1 << 1;
+	/** Must match {@code rl_car_ffi::ball::BALL_POSE_FLOATS}: position, velocity (uu/s), angular velocity (rad/s). */
+	public static final int BALL_POSE_FLOATS = 9;
+	/** Rocket League's ball radius (uu), {@code rl_car_core::BALL_RADIUS}. */
+	public static final float BALL_RADIUS = 91.25F;
 	/** Must match {@code rl_car_ffi::BOOST_METER_FLOATS}. */
 	public static final int BOOST_METER_FLOATS = 64;
 
@@ -54,6 +59,13 @@ public final class RlCarNative {
 	public static final int FLAG_JUMPING = 1 << 5;
 	public static final int FLAG_THROTTLING = 1 << 6;
 	public static final int FLAG_WHEEL_CONTACT_SHIFT = 8;
+	/** Floats written by {@code rlcar_car_contacts}: body contact normal, then each wheel's. */
+	public static final int CONTACT_FLOATS = 15;
+	public static final int CONTACT_HAS_JUMPED = 1;
+	public static final int CONTACT_HAS_DOUBLE_JUMPED = 1 << 1;
+	public static final int CONTACT_HAS_FLIPPED = 1 << 2;
+	public static final int CONTACT_WORLD = 1 << 3;
+	public static final int CONTACT_BOOST_HELD = 1 << 4;
 
 	public static final int BUTTON_JUMP = 1;
 	public static final int BUTTON_BOOST = 1 << 1;
@@ -73,6 +85,7 @@ public final class RlCarNative {
 	static final MethodHandle CAR_ADVANCE;
 	static final MethodHandle CAR_ALPHA;
 	static final MethodHandle CAR_POSE;
+	static final MethodHandle CAR_CONTACTS;
 	static final MethodHandle CAR_SAVE;
 	static final MethodHandle CAR_LOAD;
 	static final MethodHandle CAR_PRESET;
@@ -84,6 +97,18 @@ public final class RlCarNative {
 	static final MethodHandle CAMERA_TRANSLATE;
 	static final MethodHandle CAMERA_UPDATE;
 	static final MethodHandle CAMERA_PRESET;
+	static final MethodHandle CAMERA_UPDATE_BALL;
+	static final MethodHandle CAR_BUMP;
+	static final MethodHandle CAR_ADD_VELOCITY;
+	static final MethodHandle BALL_NEW;
+	static final MethodHandle BALL_FREE;
+	static final MethodHandle BALL_RESET;
+	static final MethodHandle BALL_TRANSLATE;
+	static final MethodHandle BALL_POSE;
+	static final MethodHandle BALL_STEP;
+	static final MethodHandle SCENE_STEP;
+	static final MethodHandle SCENE_ADVANCE;
+	static final MethodHandle CAR_BALL_TOUCH;
 	static final MethodHandle BOOST_METER_NEW;
 	static final MethodHandle BOOST_METER_FREE;
 	static final MethodHandle BOOST_METER_UPDATE;
@@ -115,6 +140,7 @@ public final class RlCarNative {
 			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_DOUBLE, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT));
 		CAR_ALPHA = bind(linker, lib, "rlcar_car_alpha", FunctionDescriptor.of(JAVA_FLOAT, ADDRESS));
 		CAR_POSE = bind(linker, lib, "rlcar_car_pose", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_FLOAT, ADDRESS));
+		CAR_CONTACTS = bind(linker, lib, "rlcar_car_contacts", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
 		CAR_SAVE = bind(linker, lib, "rlcar_car_save", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 		CAR_LOAD = bind(linker, lib, "rlcar_car_load", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 		CAR_PRESET = bind(linker, lib, "rlcar_car_preset", FunctionDescriptor.of(JAVA_INT, ADDRESS));
@@ -127,6 +153,22 @@ public final class RlCarNative {
 		CAMERA_UPDATE = bind(linker, lib, "rlcar_camera_update",
 			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT, ADDRESS));
 		CAMERA_PRESET = bind(linker, lib, "rlcar_camera_preset", FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS));
+		CAMERA_UPDATE_BALL = bind(linker, lib, "rlcar_camera_update_ball",
+			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT, ADDRESS));
+		CAR_BUMP = bind(linker, lib, "rlcar_car_bump",
+			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, JAVA_INT, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT, ADDRESS));
+		CAR_ADD_VELOCITY = bind(linker, lib, "rlcar_car_add_velocity", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS));
+		BALL_NEW = bind(linker, lib, "rlcar_ball_new", FunctionDescriptor.of(ADDRESS));
+		BALL_FREE = bind(linker, lib, "rlcar_ball_free", FunctionDescriptor.ofVoid(ADDRESS));
+		BALL_RESET = bind(linker, lib, "rlcar_ball_reset", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+		BALL_TRANSLATE = bind(linker, lib, "rlcar_ball_translate", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS));
+		BALL_POSE = bind(linker, lib, "rlcar_ball_pose", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_FLOAT, ADDRESS));
+		BALL_STEP = bind(linker, lib, "rlcar_ball_step", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT));
+		SCENE_STEP = bind(linker, lib, "rlcar_scene_step",
+			FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS, JAVA_INT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT));
+		SCENE_ADVANCE = bind(linker, lib, "rlcar_scene_advance",
+			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, JAVA_DOUBLE, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT));
+		CAR_BALL_TOUCH = bind(linker, lib, "rlcar_car_ball_touch", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
 		BOOST_METER_NEW = bind(linker, lib, "rlcar_boost_meter_new", FunctionDescriptor.of(ADDRESS));
 		BOOST_METER_FREE = bind(linker, lib, "rlcar_boost_meter_free", FunctionDescriptor.ofVoid(ADDRESS));
 		BOOST_METER_UPDATE = bind(linker, lib, "rlcar_boost_meter_update", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, ADDRESS));

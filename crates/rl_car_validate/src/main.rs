@@ -165,6 +165,7 @@ fn main() {
     let res = match args.first().map(String::as_str) {
         Some("gen") => generate().map(|_| true),
         Some("report") => report(),
+        Some("ball") => ball_report(),
         Some("dump") => dump(args.get(1).map(String::as_str).unwrap_or("")).map(|_| true),
         None => {
             if oracle_exe().exists() {
@@ -184,4 +185,32 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+fn ball_report() -> Result<bool, String> {
+    use rl_car_validate::ball_scenarios as bs;
+    let exe = oracle_exe();
+    let mut ok = true;
+    println!("{:<24} {:>9} {:>10} {:>8} {:>5} | {:>9} {:>10} {:>8} {:>5}", "scenario", "ball pos", "ball vel", "ball w", "div@", "car pos", "car vel", "car rot", "div@");
+    for sc in bs::all() {
+        let sp = scenario_path(sc.name());
+        let tp = trace_path(sc.name());
+        if exe.exists() {
+            std::fs::write(&sp, sc.to_oracle_text()).map_err(|e| e.to_string())?;
+            let status = Command::new(&exe).arg(&sp).arg(&tp).status().map_err(|e| e.to_string())?;
+            if !status.success() {
+                return Err(format!("oracle failed on {}", sc.name()));
+            }
+        }
+        let text = std::fs::read_to_string(&tp).map_err(|e| format!("{}: {e}", sc.name()))?;
+        let oracle = bs::parse_ball_trace(&text)?;
+        let core = bs::run_core(&sc);
+        let c = bs::compare_ball(&sc, &core, &oracle);
+        let pass = bs::passes(&c);
+        ok &= pass;
+        let div = |d: Option<u32>| d.map_or("-".to_string(), |t| t.to_string());
+        let (cp, cv, cr, cd) = c.car.as_ref().map_or(("-".into(), "-".into(), "-".into(), "-".into()), |k| (fmt_f(k.max_pos), fmt_f(k.max_vel), fmt_f(k.max_rot_deg), div(k.diverge_tick)));
+        println!("{:<24} {:>9} {:>10} {:>8} {:>5} | {:>9} {:>10} {:>8} {:>5}  {}", sc.name(), fmt_f(c.max_pos), fmt_f(c.max_vel), fmt_f(c.max_ang_vel), div(c.diverge_tick), cp, cv, cr, cd, if pass { "PASS" } else { "FAIL" });
+    }
+    Ok(ok)
 }

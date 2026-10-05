@@ -5,6 +5,7 @@ import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.ref.Cleaner;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Rocket League's car camera in the Rust core ({@code rl_car_core::camera}), in Rocket League
@@ -63,6 +64,28 @@ public final class NativeCamera implements AutoCloseable {
 		int ok;
 		try {
 			ok = (int) RlCarNative.CAMERA_UPDATE.invokeExact(this.handle, car.handle(), alpha, dt, this.settings, lookRight, lookUp, flags, this.view);
+		} catch (Throwable t) {
+			throw RlCarNative.rethrow(t);
+		}
+		if (ok == 0) {
+			return false;
+		}
+		MemorySegment.copy(this.view, JAVA_FLOAT, 0, out, 0, RlCarNative.CAMERA_VIEW_FLOATS);
+		return true;
+	}
+
+	/**
+	 * Like {@link #update}, with Rocket League's ball cam: while {@code flags} has
+	 * {@link RlCarNative#CAMERA_BALL_CAM} and {@code ball} is not null, the camera turns to keep the
+	 * ball in view (blending at the Transition Speed setting). {@code ball} must be in the car's
+	 * frame of reference; it is read {@code alpha} of the way through its last tick.
+	 */
+	public boolean updateWithBall(NativeCar car, @Nullable NativeBall ball, float alpha, float dt, float[] settings, float lookRight, float lookUp, int flags, float[] out) {
+		MemorySegment.copy(settings, 0, this.settings, JAVA_FLOAT, 0, RlCarNative.CAMERA_SETTINGS_FLOATS);
+		MemorySegment b = ball != null ? ball.handle() : MemorySegment.NULL;
+		int ok;
+		try {
+			ok = (int) RlCarNative.CAMERA_UPDATE_BALL.invokeExact(this.handle, car.handle(), b, alpha, dt, this.settings, lookRight, lookUp, flags, this.view);
 		} catch (Throwable t) {
 			throw RlCarNative.rethrow(t);
 		}

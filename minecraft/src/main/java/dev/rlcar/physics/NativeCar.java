@@ -13,6 +13,7 @@ public final class NativeCar implements AutoCloseable {
 	private final Cleaner.Cleanable cleanable;
 	private final MemorySegment pose = Arena.ofAuto().allocate(JAVA_FLOAT, RlCarNative.POSE_FLOATS);
 	private final MemorySegment vec3 = Arena.ofAuto().allocate(JAVA_FLOAT, 3);
+	private final MemorySegment contacts = Arena.ofAuto().allocate(JAVA_FLOAT, RlCarNative.CONTACT_FLOATS);
 
 	public NativeCar(int preset) {
 		try {
@@ -83,6 +84,18 @@ public final class NativeCar implements AutoCloseable {
 		return flags;
 	}
 
+	/** Writes the current tick's contacts ({@link RlCarNative#CONTACT_FLOATS} floats, RL space) into {@code out}; returns the contact flags. */
+	public int contacts(float[] out) {
+		int flags;
+		try {
+			flags = (int) RlCarNative.CAR_CONTACTS.invokeExact(this.handle, this.contacts);
+		} catch (Throwable t) {
+			throw RlCarNative.rethrow(t);
+		}
+		MemorySegment.copy(this.contacts, JAVA_FLOAT, 0, out, 0, RlCarNative.CONTACT_FLOATS);
+		return flags;
+	}
+
 	/** The full simulation state, losslessly encoded. */
 	public byte[] save() {
 		try {
@@ -112,6 +125,48 @@ public final class NativeCar implements AutoCloseable {
 	public void setUnlimitedBoost(boolean on) {
 		try {
 			RlCarNative.CAR_SET_UNLIMITED_BOOST.invokeExact(this.handle, on ? 1 : 0);
+		} catch (Throwable t) {
+			throw RlCarNative.rethrow(t);
+		}
+	}
+
+	/**
+	 * Rocket League's bump rule for this car hitting {@code victim}: 0 = no bump, 1 = push (the
+	 * velocity to add to the victim, uu/s, is written to {@code outVelocity}), 2 = demolition.
+	 *
+	 * @param victimPos victim position (RL space, same frame as this car)
+	 * @param victimVel victim velocity (uu/s)
+	 * @param victimUp the victim's up direction (world +Z for anything that is not a car)
+	 * @param contactLocalX where the contact is along this car's length (uu forward of its origin)
+	 */
+	public int bump(float[] victimPos, float[] victimVel, boolean victimOnGround, float[] victimUp, float contactLocalX, boolean allowDemolish, float[] outVelocity) {
+		try (Arena arena = Arena.ofConfined()) {
+			MemorySegment p = arena.allocateFrom(JAVA_FLOAT, victimPos);
+			MemorySegment v = arena.allocateFrom(JAVA_FLOAT, victimVel);
+			MemorySegment u = arena.allocateFrom(JAVA_FLOAT, victimUp);
+			MemorySegment out = arena.allocate(JAVA_FLOAT, 3);
+			int r = (int) RlCarNative.CAR_BUMP.invokeExact(this.handle, p, v, victimOnGround ? 1 : 0, u, contactLocalX, 1.0F, allowDemolish ? 1 : 0, out);
+			MemorySegment.copy(out, JAVA_FLOAT, 0, outVelocity, 0, 3);
+			return r;
+		} catch (Throwable t) {
+			throw RlCarNative.rethrow(t);
+		}
+	}
+
+	/** Adds {@code dx, dy, dz} uu/s to the car's velocity (it got bumped). */
+	public void addVelocity(float dx, float dy, float dz) {
+		this.setVec3(dx, dy, dz);
+		try {
+			RlCarNative.CAR_ADD_VELOCITY.invokeExact(this.handle, this.vec3);
+		} catch (Throwable t) {
+			throw RlCarNative.rethrow(t);
+		}
+	}
+
+	/** True if the car touched the ball since the last call. */
+	public boolean consumeBallTouch() {
+		try {
+			return (int) RlCarNative.CAR_BALL_TOUCH.invokeExact(this.handle, MemorySegment.NULL) != 0;
 		} catch (Throwable t) {
 			throw RlCarNative.rethrow(t);
 		}

@@ -8,7 +8,10 @@ import dev.rlcar.client.CarKeys;
 import dev.rlcar.client.ClientDriving;
 import dev.rlcar.client.PadBindEntry;
 import dev.rlcar.client.PadBinds;
+import dev.rlcar.client.RlAudio;
 import dev.rlcar.client.RlBoost;
+import dev.rlcar.client.RlFx;
+import dev.rlcar.entity.BallEntity;
 import dev.rlcar.entity.CarEntity;
 import dev.rlcar.physics.CarPose;
 import dev.rlcar.physics.RlCarNative;
@@ -26,9 +29,13 @@ import net.minecraft.client.gui.screens.options.controls.ControlsScreen;
 import net.minecraft.client.gui.screens.options.controls.KeyBindsList;
 import net.minecraft.client.gui.screens.options.controls.KeyBindsScreen;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.item.DyeColor;
+import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -36,8 +43,8 @@ import org.joml.Vector3f;
 
 /**
  * Drives a car in the real game: gets in, boosts (with Boost rebound to the left mouse button, as
- * in Rocket League), jumps, turns, air rolls, looks behind, resets, gets out, with a screenshot at
- * each step. Fails if the car or Rocket League's camera does not respond the way the physics and
+ * in Rocket League), jumps, turns, air rolls, looks behind, resets, plays the ball (ball cam
+ * included), bumps a pig, demolishes a car, gets out, with a screenshot at each step. Fails if the car or Rocket League's camera does not respond the way the physics and
  * the bindings say it should.
  */
 public class CarClientGameTest implements FabricClientGameTest {
@@ -45,6 +52,9 @@ public class CarClientGameTest implements FabricClientGameTest {
 
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
+		if (LookdevClientGameTest.enabled() || PerfClientGameTest.enabled()) {
+			return;
+		}
 		checkBindings(ctx);
 		try (TestSingleplayerContext sp = ctx.worldBuilder().create()) {
 			sp.getConnection().waitForChunksRender();
@@ -92,6 +102,10 @@ public class CarClientGameTest implements FabricClientGameTest {
 			check(cam.forward.x > 0.99 && cam.up.y > 0.99, "camera looks along the car: forward " + cam.forward);
 			check(Math.abs(cam.fov - 58.72) < 0.05, "Rocket League's 90 degree (16:9 horizontal) FOV: vertical " + cam.fov);
 			shot(ctx, "1-parked");
+			if (ctx.computeOnClient(mc -> RlAudio.extracted() && RlAudio.ready())) {
+				int voices = ctx.computeOnClient(mc -> RlAudio.voices());
+				check(voices >= 3, "the engine, exhaust and tyre sounds play (" + voices + " voices)");
+			}
 
 			// Throttle + Boost, with Boost rebound to the left mouse button (Rocket League's default).
 			// Left click is Attack in Minecraft; while driving it must only boost.
@@ -109,6 +123,14 @@ public class CarClientGameTest implements FabricClientGameTest {
 			if (ctx.computeOnClient(mc -> RlBoost.extracted())) {
 				check(ctx.computeOnClient(mc -> mc.player.getVehicle() instanceof CarEntity c && RlBoost.smokeRadius(c) > 1), "boost smoke trails behind the car");
 			}
+			if (ctx.computeOnClient(mc -> RlFx.extracted()) && fast.has(RlCarNative.FLAG_SUPERSONIC)) {
+				int n = ctx.computeOnClient(mc -> RlFx.particles());
+				check(n > 0, "supersonic streaks and wheel trails (" + n + " particles)");
+			}
+			if (ctx.computeOnClient(mc -> RlAudio.extracted() && RlAudio.ready())) {
+				int voices = ctx.computeOnClient(mc -> RlAudio.voices());
+				check(voices >= 4, "boost and supersonic sounds join the engine (" + voices + " voices)");
+			}
 			ctx.runOnClient(mc -> mc.gui.hud.toggle()); // hide the HUD (F1) to see the trail
 			shot(ctx, "2b-boost-trail");
 			ctx.runOnClient(mc -> mc.gui.hud.toggle());
@@ -123,6 +145,10 @@ public class CarClientGameTest implements FabricClientGameTest {
 			ctx.waitTicks(8);
 			CarPose air = pose(ctx);
 			shot(ctx, "3-jump");
+			if (ctx.computeOnClient(mc -> RlFx.extracted())) {
+				int n = ctx.computeOnClient(mc -> RlFx.particles());
+				check(n > 0, "jump smoke (" + n + " particles)");
+			}
 			check(!air.has(RlCarNative.FLAG_ON_GROUND) && air.y - start.getY() > 0.8, "in the air after a jump: height " + (air.y - start.getY()));
 			ctx.waitTicks(30);
 			check(pose(ctx).has(RlCarNative.FLAG_ON_GROUND), "landed");
@@ -187,9 +213,18 @@ public class CarClientGameTest implements FabricClientGameTest {
 				server.getPlayerList().getPlayers().getFirst().getVehicle() instanceof CarEntity c ? c.getX() : Double.NaN);
 			check(Math.abs(serverX - pose(ctx).x) < 1.5, "server follows the driver (server x " + serverX + ", client x " + pose(ctx).x + ")");
 
-			// Get out; the server keeps simulating the car.
+			playBall(ctx, sp, start);
+			bumpAndDemolish(ctx, sp, start);
+
+			// Get out; the server keeps simulating the car (and the ball it was playing).
+			Vec3 nextToCar = pose(ctx).position().add(4, BallEntity.RADIUS + 0.2, 0);
+			sp.getServer().runOnServer(server -> server.overworld().addFreshEntity(BallEntity.create(server.overworld(), nextToCar)));
+			ctx.waitTicks(20);
+			check(ctx.computeOnClient(mc -> ClientDriving.simulatesBall()), "a ball next to the car is lent to its driver");
 			input.pressKey(CarKeys.EXIT);
 			ctx.waitTicks(10);
+			check(!ctx.computeOnClient(mc -> ClientDriving.simulatesBall()), "getting out hands the ball back");
+			check(sp.getServer().computeOnServer(server -> !ball(server).lent()), "the server simulates the ball again");
 			check(!ctx.computeOnClient(mc -> ClientDriving.isDriving()), "client stopped driving");
 			check(ctx.computeOnClient(mc -> mc.options.getCameraType()) == CameraType.FIRST_PERSON, "camera restored");
 			check(sp.getServer().computeOnServer(server -> server.getPlayerList().getPlayers().getFirst().getVehicle() == null), "player is out");
@@ -228,7 +263,131 @@ public class CarClientGameTest implements FabricClientGameTest {
 			sp.getServer().runCommand("tp @p " + (start.getX() - 3.5) + " " + (start.getY() + 1.5) + " " + (start.getZ() + 0.5) + " -90 20");
 			ctx.waitTicks(60);
 			shot(ctx, "7-showroom");
+
+			// The car materials in different light: close up at noon, then the line-up at sunset and at night.
+			ctx.runOnClient(mc -> mc.gui.hud.toggle());
+			sp.getServer().runCommand("tp @p " + (start.getX() + 2.3) + " " + (start.getY() + 0.9) + " " + (start.getZ() - 3.4) + " -125 20");
+			ctx.waitTicks(20);
+			shot(ctx, "7b-closeup");
+			sp.getServer().runCommand("tp @p " + (start.getX() - 3.5) + " " + (start.getY() + 1.5) + " " + (start.getZ() + 0.5) + " -90 20");
+			sp.getServer().runCommand("time set 12600");
+			ctx.waitTicks(20);
+			shot(ctx, "7c-sunset");
+			sp.getServer().runCommand("time set 18000");
+			ctx.waitTicks(20);
+			shot(ctx, "7d-night");
+			ctx.runOnClient(mc -> mc.gui.hud.toggle());
 		}
+	}
+
+	/**
+	 * A ball to the side of the road: the server lends it to the driver's client, Ball Cam turns the
+	 * camera to it and back, then the car boosts into it and it flies down the road, on the client
+	 * and on the server.
+	 */
+	private static void playBall(ClientGameTestContext ctx, TestSingleplayerContext sp, BlockPos start) {
+		TestInput input = ctx.getInput();
+		Vec3 ballAt = Vec3.atBottomCenterOf(start).add(30, BallEntity.RADIUS + 0.1, 3.5);
+		// Within the 8 blocks at which the server lends a ball to a driver.
+		placeCar(ctx, Vec3.atBottomCenterOf(start).add(24, 0.3, 0));
+		sp.getServer().runOnServer(server -> server.overworld().addFreshEntity(BallEntity.create(server.overworld(), ballAt)));
+		ctx.waitTicks(40);
+		check(ctx.computeOnClient(mc -> ClientDriving.simulatesBall()), "the server lent the nearby ball to the driver's client");
+		check(sp.getServer().computeOnServer(server -> ball(server).lent()), "the server knows the ball is lent");
+		double bottom = ctx.computeOnClient(mc -> clientBall(mc).getY());
+		check(Math.abs(bottom - start.getY()) < 0.05, "ball rests on the road (bottom " + (bottom - start.getY()) + ")");
+
+		// Ball Cam: the camera turns from the car's heading (east) to the ball, off to the side.
+		CameraState carCam = camera(ctx);
+		input.pressKey(CarKeys.BALL_CAM);
+		ctx.waitTicks(40);
+		CameraState ballCam = camera(ctx);
+		shot(ctx, "8-ball-cam");
+		Vec3 toBall = ballAt.subtract(ballCam.position).normalize();
+		check(new Vec3(ballCam.forward).dot(toBall) > 0.97, "ball cam looks at the ball: forward " + ballCam.forward + ", to ball " + toBall);
+		check(new Vec3(carCam.forward).dot(ballAt.subtract(carCam.position).normalize()) < 0.97, "the car camera did not (forward " + carCam.forward + ")");
+		input.pressKey(CarKeys.BALL_CAM);
+		ctx.waitTicks(40);
+		check(camera(ctx).forward.x > 0.99, "Ball Cam again: back to the car camera, forward " + camera(ctx).forward);
+
+		// Line up behind the ball and boost into it.
+		placeCar(ctx, Vec3.atBottomCenterOf(start).add(22, 0.3, 3.5));
+		ctx.waitTicks(10);
+		input.holdKey(CarKeys.THROTTLE);
+		input.holdKey(CarKeys.BOOST);
+		ctx.waitTicks(30);
+		input.releaseKey(CarKeys.BOOST);
+		input.releaseKey(CarKeys.THROTTLE);
+		ctx.waitTicks(10);
+		shot(ctx, "9-ball-hit");
+		double clientBallX = ctx.computeOnClient(mc -> clientBall(mc).center().x);
+		check(clientBallX - ballAt.x > 8, "hit ball flew down the road: " + (clientBallX - ballAt.x) + " blocks");
+		sp.getConnection().waitForServerboundPackets();
+		ctx.waitTicks(2);
+		double serverBallX = sp.getServer().computeOnServer(server -> ball(server).center().x);
+		check(serverBallX - ballAt.x > 8, "the server follows the ball: " + (serverBallX - ballAt.x) + " blocks");
+		sp.getServer().runCommand("kill @e[type=rlcar:ball]");
+	}
+
+	/** A pig on the road gets bumped; a parked car further down gets demolished at supersonic speed and comes back. */
+	private static void bumpAndDemolish(ClientGameTestContext ctx, TestSingleplayerContext sp, BlockPos start) {
+		TestInput input = ctx.getInput();
+		Vec3 pigAt = Vec3.atBottomCenterOf(start).add(34, 0, -2);
+		sp.getServer().runOnServer(server -> {
+			ServerLevel level = server.overworld();
+			var pig = EntityTypes.PIG.create(level, EntitySpawnReason.COMMAND);
+			pig.snapTo(pigAt.x, pigAt.y, pigAt.z, 0, 0);
+			pig.addTag("rlcar_test_pig");
+			level.addFreshEntity(pig);
+			level.addFreshEntity(CarEntity.create(level, Vec3.atBottomCenterOf(start).add(140, 0.3, -2), 0, 4, CarEntity.ORANGE));
+		});
+		placeCar(ctx, Vec3.atBottomCenterOf(start).add(20, 0.3, -2));
+		ctx.waitTicks(20);
+		input.holdKey(CarKeys.THROTTLE);
+		input.holdKey(CarKeys.BOOST);
+		boolean pigHit = false;
+		for (int t = 0; t < 40 && !pigHit; t++) {
+			ctx.waitTick();
+			pigHit = sp.getServer().computeOnServer(server -> {
+				var pigs = server.overworld().getEntities(EntityTypes.PIG, p -> p.entityTags().contains("rlcar_test_pig"));
+				return pigs.isEmpty() || pigs.getFirst().position().distanceTo(pigAt) > 2;
+			});
+		}
+		check(pigHit, "the pig got bumped (or demolished)");
+		boolean demolished = false;
+		for (int t = 0; t < 160 && !demolished; t++) {
+			ctx.waitTick();
+			demolished = sp.getServer().computeOnServer(server -> parkedHybrid(server) != null && parkedHybrid(server).demolished());
+		}
+		input.releaseKey(CarKeys.BOOST);
+		input.releaseKey(CarKeys.THROTTLE);
+		shot(ctx, "10-demolition");
+		check(demolished, "a supersonic hit demolished the parked car");
+		// Brake before the wall at the end of the road, and carry on from there (teleporting the car
+		// back 140 blocks would make the server stop tracking it for a moment).
+		input.holdKey(CarKeys.REVERSE);
+		ctx.waitTicks(30);
+		input.releaseKey(CarKeys.REVERSE);
+		ctx.waitTicks(40);
+		check(sp.getServer().computeOnServer(server -> parkedHybrid(server) != null && !parkedHybrid(server).demolished()), "the demolished car respawned after three seconds");
+	}
+
+	/** Puts the driven car at {@code at}, at rest, facing east (+X). */
+	private static void placeCar(ClientGameTestContext ctx, Vec3 at) {
+		ctx.runOnClient(mc -> ClientDriving.sim().resetAt(at, -90.0F));
+	}
+
+	private static BallEntity clientBall(Minecraft mc) {
+		return mc.level.getEntitiesOfClass(BallEntity.class, mc.player.getBoundingBox().inflate(200)).getFirst();
+	}
+
+	private static BallEntity ball(MinecraftServer server) {
+		return server.overworld().getEntities(EntityTypeTest.forClass(BallEntity.class), b -> true).getFirst();
+	}
+
+	private static CarEntity parkedHybrid(MinecraftServer server) {
+		var cars = server.overworld().getEntities(RlCar.CAR, c -> c.preset() == 4);
+		return cars.isEmpty() ? null : cars.getFirst();
 	}
 
 	/** The RL Car sections of the Controls screen: Rocket League's key and controller bindings, in its order, with sensible conflicts. */

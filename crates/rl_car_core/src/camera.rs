@@ -1,16 +1,20 @@
-//! Rocket League's car camera ("car cam", ball cam off), engine-agnostic.
+//! Rocket League's player camera (car cam and ball cam), engine-agnostic.
 //!
 //! Presentation only: nothing here feeds back into [`crate::step`]. Hosts call
-//! [`CarCamera::update`] once per rendered frame with the (interpolated) car and get back where
-//! to put the camera, in Rocket League space and units like the rest of the crate.
+//! [`CarCamera::update`] (or [`CarCamera::update_with_ball`]) once per rendered frame with the
+//! (interpolated) car and get back where to put the camera, in Rocket League space and units like
+//! the rest of the crate.
 //!
-//! This follows the game's own camera script (`CameraState_Car_TA`, `Camera_TA`; read from
-//! `TAGame.upk` of the installed game) and the tuned values of its `Archetypes.Camera` objects:
+//! This follows the game's own camera script (`CameraState_Car_TA`, `CameraState_BallCam_TA`,
+//! `Camera_TA` in `TAGame.upk` and `CameraStateBlender_X`, `CameraUtils_X` in `ProjectX.upk` of the
+//! installed game) and the tuned values of its `Archetypes.Camera` objects.
+//!
+//! Car cam (`CameraState_Car_TA`):
 //!
 //! * **Focus**: the car position plus `Height` uu of offset (along the car's up while fully on the
-//!   ground, world up otherwise), smoothed. Only the part of the smoothing that is across the view
-//!   lags behind; along the view it is exact. `Stiffness` blends the lagging focus back to the true
-//!   one.
+//!   ground, world up otherwise), smoothed but never more than 100 uu behind. Only the part of the
+//!   smoothing that is across the view lags behind; along the view it is exact. `Stiffness` blends
+//!   the lagging focus back to the true one.
 //! * **Ground**: look along the car's forward projected onto the driving surface, `Angle` degrees
 //!   down. The camera stays upright: on walls and the ceiling it does not roll with the car (only
 //!   10 % of the car's sideways lean on the ground). Rotation is smoothed fast on the floor and
@@ -19,14 +23,29 @@
 //!   like a camera on a string, so flips, spins and air rolls leave it pointing forward.
 //! * **Distance**: `Distance` uu, pulled out while moving away from the camera (less with more
 //!   `Stiffness`). **FOV**: `FOV` degrees, up to +5 with speed and +10 when supersonic.
-//! * **Swivel** (right stick): orbits the camera around the focus by up to ±123° yaw (±99° at
-//!   2500 uu/s and above), 30° up and 49° down, eased at `Swivel Speed` and returning twice as fast.
-//!   **Rear view** turns it 180°.
 //!
-//! Left out: ball cam and the free-look camera mode (nothing to target; the "Modern" preset's
-//! unconstrained rotation), camera shake, and the bob from the car body's visual suspension.
-//! Clipping the camera against the world (Rocket League only keeps it 10 uu above the field floor)
-//! is up to the host.
+//! Ball cam (`CameraState_BallCam_TA`, a car cam with these overrides):
+//!
+//! * **Focus**: exactly `Height` uu above the car along world up, with no lag at all, raised a
+//!   little more the steeper the ball is above or below (0.005 uu per rotation unit of pitch: about
+//!   +80 uu with the ball straight up).
+//! * **Rotation**: towards the ball from the focus, smoothed at a fixed rate whatever the car does
+//!   on the ground or in the air. Pitch is the game's trick for keeping the car in view: while the
+//!   ball is within 22° of level the camera keeps the `Angle` setting and only yaws; from 22° to 44°
+//!   it eases in, and beyond that it follows 80 % of the ball's pitch. No roll.
+//! * **Rear view** while in ball cam is plain car cam (turned 180°); toggling it snaps.
+//! * **Switching** (both ways): the camera freezes the view it had, starts the new mode fresh and
+//!   eases out the difference (focus, rotation, distance, FOV) with a smoothstep over 0.5 s at
+//!   `Transition Speed` 1, down to an instant cut at 2.
+//!
+//! Both: **Swivel** (right stick) orbits the camera around the focus by up to ±123° yaw (±99° at
+//! 2500 uu/s and above), 30° up and 49° down, eased at `Swivel Speed` and returning twice as fast.
+//! **Rear view** turns it 180°.
+//!
+//! Left out: the free-look camera mode (the "Modern" preset's unconstrained rotation), camera
+//! shake, the bob from the car body's visual suspension, and picking a ball cam target among
+//! several (the host passes the one ball). Clipping the camera against the world (Rocket League
+//! only keeps it 10 uu above the field floor) is up to the host.
 
 use crate::consts::CAR_MAX_SPEED;
 use crate::math::Vec3;
@@ -51,8 +70,7 @@ pub struct CameraSettings {
     pub stiffness: f32,
     /// How fast the right stick swivels the camera (1..=10).
     pub swivel_speed: f32,
-    /// How fast the camera blends to and from ball cam (1..=2). Kept for completeness: there is no
-    /// ball cam here.
+    /// How fast the camera blends to and from ball cam (1..=2).
     pub transition_speed: f32,
     /// Pushing the stick up looks down.
     pub invert_swivel_pitch: bool,
@@ -109,13 +127,23 @@ impl CameraSettings {
             invert_swivel_pitch: self.invert_swivel_pitch,
         }
     }
+
+    /// `CameraState_Car_TA.StaticOverrideBlendParams`: seconds to blend between car cam and ball
+    /// cam (0.5 at Transition Speed 1, an instant cut at 2).
+    pub fn transition_time(&self) -> f32 {
+        let alpha = (self.clamped().transition_speed - 1.0).clamp(0.0, 1.0);
+        lerp(BLEND_TIME, 0.0, alpha)
+    }
 }
 
-/// The game's tuning (`Archetypes.Camera.CameraState_Car`, `Archetypes.Camera.Camera_Default`).
+/// The game's tuning (`Archetypes.Camera.CameraState_Car`, `Archetypes.Camera.CameraState_Ballcam`,
+/// `Archetypes.Camera.Camera_Default`).
 mod tuning {
     pub const INTERP_TO_GROUND_RATE: f32 = 2.0;
     pub const INTERP_TO_AIR_RATE: f32 = 4.0;
     pub const FOCUS_RATE: f32 = 6.32;
+    /// `FocusInterp.MaxDistance`: the smoothed focus never lags further than this.
+    pub const FOCUS_MAX_DISTANCE: f32 = 100.0;
     pub const FOCUS_OFFSET_RATE: f32 = 2.03;
     pub const DISTANCE_RATE: f32 = 4.14;
     pub const GROUND_ROTATION_RATE: f32 = 13.39;
@@ -144,6 +172,20 @@ mod tuning {
     pub const SWIVEL_PITCH_MIN: f32 = -8900.0;
     pub const SWIVEL_FAST_SPEED: f32 = 2500.0;
     pub const SWIVEL_DIE_RATE: f32 = 2.0;
+    /// `DefaultBlendParams.BlendTime` of both states, before Transition Speed.
+    pub const BLEND_TIME: f32 = 0.5;
+
+    // Ball cam (`CameraState_BallCam_TA`).
+    /// `FocusInterp.MaxDistance` while in ball cam: the focus does not lag at all.
+    pub const BALL_FOCUS_MAX_DISTANCE: f32 = 0.001;
+    pub const BALL_ROTATION_RATE: f32 = 8.59;
+    /// Focus raise (uu) per rotation unit of pitch towards the ball.
+    pub const BALL_PITCH_FOCUS_Z_FACTOR: f32 = 0.005;
+    /// Pitch towards the ball (rotation units) where the camera starts / ends easing into it.
+    pub const BALL_PITCH_EXTENT_MIN: f32 = 4000.0;
+    pub const BALL_PITCH_EXTENT_MAX: f32 = 8000.0;
+    /// Share of the ball's pitch the camera follows past `BALL_PITCH_EXTENT_MAX`.
+    pub const BALL_PITCH_SCALE: f32 = 0.8;
 }
 use tuning::*;
 
@@ -279,6 +321,14 @@ impl Rot {
         Rot { pitch: self.pitch + o.pitch, yaw: self.yaw + o.yaw, roll: self.roll + o.roll }
     }
 
+    fn sub(self, o: Rot) -> Rot {
+        Rot { pitch: self.pitch - o.pitch, yaw: self.yaw - o.yaw, roll: self.roll - o.roll }
+    }
+
+    fn scale(self, k: f32) -> Rot {
+        Rot { pitch: self.pitch * k, yaw: self.yaw * k, roll: self.roll * k }
+    }
+
     fn normalized(self) -> Rot {
         Rot { pitch: wrap(self.pitch), yaw: wrap(self.yaw), roll: wrap(self.roll) }
     }
@@ -316,16 +366,22 @@ fn vlerp(a: Vec3, b: Vec3, t: f32) -> Vec3 {
     a + (b - a) * t
 }
 
-/// `InterpVector` with the game's frame-rate independent smoothing (`VSmoothInterpTo`).
+/// `InterpVector` with the game's frame-rate independent smoothing (`UpdateInterpVector`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Smoothed {
     value: Option<Vec3>,
 }
 
 impl Smoothed {
-    fn update(&mut self, target: Vec3, rate: f32, dt: f32) -> Vec3 {
+    /// Moves towards `target` at `rate`, but never stays more than `max_distance` uu away from it
+    /// (0 = no limit).
+    fn update(&mut self, target: Vec3, rate: f32, max_distance: f32, dt: f32) -> Vec3 {
         let v = match self.value {
-            Some(v) => v + (target - v) * smooth_alpha(rate, dt),
+            Some(v) => {
+                let v = v + (target - v) * smooth_alpha(rate, dt);
+                let lag = target - v;
+                if max_distance > 0.0 && lag.length_squared() > max_distance * max_distance { target - lag.normalized() * max_distance } else { v }
+            }
             None => target,
         };
         self.value = Some(v);
@@ -333,7 +389,7 @@ impl Smoothed {
     }
 }
 
-/// The camera's own view, before swivel and rear view (`PreProcessPOV`).
+/// The camera's own view, before blending, swivel and rear view (`CameraOrientation`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Pov {
     focus: Vec3,
@@ -351,10 +407,51 @@ impl Pov {
     }
 }
 
-/// Rocket League's car camera. Keep one per viewed car and call [`CarCamera::update`] every
-/// rendered frame; call [`CarCamera::reset`] when the car teleports.
+/// What a camera-state transition adds to the new state's view (`TransitionDelta`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct PovDelta {
+    focus: Vec3,
+    rotation: Rot,
+    distance: f32,
+    fov: f32,
+}
+
+impl PovDelta {
+    fn scale(self, k: f32) -> PovDelta {
+        PovDelta { focus: self.focus * k, rotation: self.rotation.scale(k), distance: self.distance * k, fov: self.fov * k }
+    }
+}
+
+/// A blend from the previous camera state (`CameraTransition`): `offset` (previous view minus
+/// the new one, when the switch happened) eased out over `time` seconds.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CarCamera {
+struct Transition {
+    remaining: f32,
+    time: f32,
+    offset: PovDelta,
+}
+
+impl Transition {
+    /// `CameraUtils_X.GetBlendPercent` with the default `VTBlend_Cubic`: how much of `offset` is
+    /// still applied (1 at the switch, 0 at the end).
+    fn weight(&self) -> f32 {
+        let t = (self.remaining / self.time).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    }
+}
+
+/// Which camera state is active.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    Car,
+    Ball,
+}
+
+/// Interpolation memory of the active camera state, reset whenever a state begins
+/// (`BeginCameraState` / `ResetInterpState`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct StateMemory {
+    /// `bFirstExecution`: snap instead of smoothing this frame.
     first: bool,
     on_ground: bool,
     /// 1 = ground camera, 0 = air camera.
@@ -363,137 +460,125 @@ pub struct CarCamera {
     focus: Smoothed,
     focus_offset: Smoothed,
     distance: Smoothed,
-    pov: Pov,
-    /// Current swivel (pitch, yaw), radians.
-    swivel: (f32, f32),
 }
 
-impl Default for CarCamera {
-    fn default() -> Self {
-        CarCamera::new()
-    }
-}
-
-impl CarCamera {
-    pub fn new() -> CarCamera {
-        CarCamera {
+impl StateMemory {
+    fn begin(car: &CameraTarget) -> StateMemory {
+        StateMemory {
             first: true,
-            on_ground: true,
-            air_ground_blend: 1.0,
-            ground_normal: Vec3::Z,
+            on_ground: car.on_ground,
+            air_ground_blend: if car.on_ground { 1.0 } else { 0.0 },
+            ground_normal: car.ground_normal,
             focus: Smoothed::default(),
             focus_offset: Smoothed::default(),
             distance: Smoothed::default(),
-            pov: Pov::default(),
-            swivel: (0.0, 0.0),
         }
     }
 
-    /// Starts over from the car's current pose on the next update (no smoothing from the old one).
-    pub fn reset(&mut self) {
-        *self = CarCamera::new();
-    }
-
-    /// Moves everything the camera remembers by `delta` uu (when the host shifts its origin).
-    pub fn translate(&mut self, delta: Vec3) {
-        // The focus offset is relative to the car; the rest are world positions.
-        if let Some(v) = self.focus.value.as_mut() {
-            *v += delta;
-        }
-        self.pov.focus += delta;
-        self.pov.location += delta;
-    }
-
-    /// Whether the camera is (blending towards) its ground behaviour: 1 = ground, 0 = air.
-    pub fn air_ground_blend(&self) -> f32 {
-        self.air_ground_blend
-    }
-
-    /// Advances the camera by `dt` seconds of real time and returns this frame's view.
-    pub fn update(&mut self, car: &CameraTarget, input: &CameraInput, settings: &CameraSettings, dt: f32) -> CameraView {
-        let settings = settings.clamped();
-        let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
-        let first = self.first;
-        let height = settings.height;
+    /// `CameraState_Car_TA.UpdateValidPOV`, the whole car cam.
+    fn car_cam(&mut self, pov: &mut Pov, car: &CameraTarget, settings: &CameraSettings, focus_max_distance: f32, dt: f32) {
         let pitch_offset = settings.angle.to_radians();
-
-        // UpdateAirGroundBlend (BeginCameraState on the first frame).
-        if first {
-            self.on_ground = car.on_ground;
-            self.air_ground_blend = if car.on_ground { 1.0 } else { 0.0 };
-            self.ground_normal = car.ground_normal;
-        } else {
-            if self.on_ground != car.on_ground {
-                self.on_ground = car.on_ground;
-                if self.on_ground {
-                    self.ground_normal = car.ground_normal;
-                }
-            }
-            self.air_ground_blend += if self.on_ground { INTERP_TO_GROUND_RATE * dt } else { -INTERP_TO_AIR_RATE * dt };
-            self.air_ground_blend = self.air_ground_blend.clamp(0.0, 1.0);
-        }
+        self.update_air_ground_blend(car, dt);
 
         // UpdateFocusWorldOffset: above the car along its up only while fully on the ground.
+        let height = settings.height;
         let offset = if self.air_ground_blend >= 1.0 { car.orientation.0.mul_vec(Vec3::new(0.0, 0.0, height)) } else { Vec3::new(0.0, 0.0, height) };
-        let offset = self.focus_offset.update(offset, FOCUS_OFFSET_RATE, dt);
-
-        // UpdateFocus: the smoothed focus lags only across the view; Stiffness pulls it back.
-        let focus = car.position + offset;
-        let lagging = self.focus.update(focus, FOCUS_RATE, dt);
-        let forward = self.pov.rotation.dir();
-        let mut across = lagging - self.pov.location;
-        across -= forward * forward.dot(across);
-        across += forward * forward.dot(focus - self.pov.location);
-        self.pov.focus = vlerp(self.pov.location + across, focus, settings.stiffness);
+        let offset = self.focus_offset.update(offset, FOCUS_OFFSET_RATE, 0.0, dt);
+        self.update_focus(pov, car, offset, focus_max_distance, settings, dt);
 
         // UpdateAirAndGroundCamera.
         let blend = self.air_ground_blend;
-        self.pov.rotation = if blend >= 1.0 {
-            self.ground_rotation(car, &settings, pitch_offset, dt)
+        pov.rotation = if blend >= 1.0 {
+            self.ground_rotation(pov, car, settings, pitch_offset, dt)
         } else if blend <= 0.0 {
-            self.air_rotation(car, pitch_offset)
+            self.air_rotation(pov, car, pitch_offset)
         } else {
-            let air = self.air_rotation(car, pitch_offset);
-            let ground = self.ground_rotation(car, &settings, pitch_offset, dt);
+            let air = self.air_rotation(pov, car, pitch_offset);
+            let ground = self.ground_rotation(pov, car, settings, pitch_offset, dt);
             air.lerp(ground, blend)
         };
 
-        // UpdateDistance: pulled out while moving away from the camera.
-        let away = car.velocity.dot(self.pov.rotation.dir());
-        let target = settings.distance + (away * DISTANCE_SPEED_SCALE * (1.0 - settings.stiffness)).max(DISTANCE_OFFSET_MIN);
-        self.pov.distance = self.distance.update(Vec3::new(target, 0.0, 0.0), DISTANCE_RATE, dt).x;
-
-        // UpdateFOV.
-        let (fov, fov_speed) = if car.supersonic {
-            (settings.fov + SUPERSONIC_FOV, SUPERSONIC_FOV_INTERP_SPEED)
-        } else {
-            (lerp(settings.fov, settings.fov + MAX_SPEED_FOV, car.velocity.length() / CAR_MAX_SPEED), FOV_INTERP_SPEED)
-        };
-        self.pov.fov = if first { fov } else { self.pov.fov + (fov - self.pov.fov).clamp(-fov_speed * dt, fov_speed * dt) };
+        self.update_distance(pov, car, settings, dt);
+        self.update_fov(pov, car, settings, dt);
 
         // UpdateRotationModifiers: a little of the car's sideways lean while on the ground.
         if blend > 0.0 {
             let right = car.orientation.right();
             let lean = right.z.atan2((right.x * right.x + right.y * right.y).sqrt());
-            self.pov.rotation.roll = lean * -ROLL_SCALE * blend;
+            pov.rotation.roll = lean * -ROLL_SCALE * blend;
         }
 
         self.first = false;
-        self.pov.finalize();
+        pov.finalize();
+    }
 
-        // Camera_TA.PostProcessCameraState: swivel, then rear view, around the focus.
-        self.update_swivel(car, input, &settings, dt);
-        let mut post = self.pov;
-        post.rotation = post.rotation.add(Rot { pitch: self.swivel.0, yaw: self.swivel.1, roll: 0.0 });
-        if input.rear_view {
-            post.rotation.yaw += std::f32::consts::PI;
+    /// `CameraState_BallCam_TA.UpdateValidPOV` with the rear camera off: the car cam with its own
+    /// focus offset, focus and rotation, and no rotation modifiers.
+    fn ball_cam(&mut self, pov: &mut Pov, car: &CameraTarget, ball: Vec3, settings: &CameraSettings, dt: f32) {
+        self.update_air_ground_blend(car, dt);
+
+        // UpdateFocusWorldOffset: straight up, not smoothed.
+        let offset = Vec3::new(0.0, 0.0, settings.height);
+        self.focus_offset.value = Some(offset);
+        self.update_focus(pov, car, offset, BALL_FOCUS_MAX_DISTANCE, settings, dt);
+
+        // UpdateAirAndGroundCamera.
+        let to_ball = Rot::of_dir(ball - pov.focus);
+        pov.focus.z += to_ball.pitch.abs() / UU_TO_RAD * BALL_PITCH_FOCUS_Z_FACTOR;
+        let mut target = Rot::of_dir(ball - pov.focus);
+        let strength = ((target.pitch.abs() / UU_TO_RAD - BALL_PITCH_EXTENT_MIN) / (BALL_PITCH_EXTENT_MAX - BALL_PITCH_EXTENT_MIN)).clamp(0.0, 1.0);
+        target.pitch = lerp(settings.angle.to_radians(), target.pitch, BALL_PITCH_SCALE * strength);
+        pov.rotation = if self.first { target } else { pov.rotation.smooth_to(target, BALL_ROTATION_RATE, dt) };
+
+        self.update_distance(pov, car, settings, dt);
+        self.update_fov(pov, car, settings, dt);
+
+        self.first = false;
+        pov.finalize();
+    }
+
+    /// `UpdateAirGroundBlend`.
+    fn update_air_ground_blend(&mut self, car: &CameraTarget, dt: f32) {
+        if self.on_ground != car.on_ground {
+            self.on_ground = car.on_ground;
+            if self.on_ground {
+                self.ground_normal = car.ground_normal;
+            }
         }
-        post.finalize();
-        CameraView { location: post.location, orientation: post.rotation.axes(), fov: post.fov, focus: post.focus }
+        self.air_ground_blend += if self.on_ground { INTERP_TO_GROUND_RATE * dt } else { -INTERP_TO_AIR_RATE * dt };
+        self.air_ground_blend = self.air_ground_blend.clamp(0.0, 1.0);
+    }
+
+    /// `UpdateFocus`: the smoothed focus lags only across the view; Stiffness pulls it back.
+    fn update_focus(&mut self, pov: &mut Pov, car: &CameraTarget, offset: Vec3, max_distance: f32, settings: &CameraSettings, dt: f32) {
+        let focus = car.position + offset;
+        let lagging = self.focus.update(focus, FOCUS_RATE, max_distance, dt);
+        let forward = pov.rotation.dir();
+        let mut across = lagging - pov.location;
+        across -= forward * forward.dot(across);
+        across += forward * forward.dot(focus - pov.location);
+        pov.focus = vlerp(pov.location + across, focus, settings.stiffness);
+    }
+
+    /// `UpdateDistance`: pulled out while moving away from the camera.
+    fn update_distance(&mut self, pov: &mut Pov, car: &CameraTarget, settings: &CameraSettings, dt: f32) {
+        let away = car.velocity.dot(pov.rotation.dir());
+        let target = settings.distance + (away * DISTANCE_SPEED_SCALE * (1.0 - settings.stiffness)).max(DISTANCE_OFFSET_MIN);
+        pov.distance = self.distance.update(Vec3::new(target, 0.0, 0.0), DISTANCE_RATE, 0.0, dt).x;
+    }
+
+    /// `UpdateFOV`.
+    fn update_fov(&self, pov: &mut Pov, car: &CameraTarget, settings: &CameraSettings, dt: f32) {
+        let (fov, fov_speed) = if car.supersonic {
+            (settings.fov + SUPERSONIC_FOV, SUPERSONIC_FOV_INTERP_SPEED)
+        } else {
+            (lerp(settings.fov, settings.fov + MAX_SPEED_FOV, car.velocity.length() / CAR_MAX_SPEED), FOV_INTERP_SPEED)
+        };
+        pov.fov = if self.first { fov } else { pov.fov + (fov - pov.fov).clamp(-fov_speed * dt, fov_speed * dt) };
     }
 
     /// `UpdateGroundPOV`.
-    fn ground_rotation(&mut self, car: &CameraTarget, settings: &CameraSettings, pitch_offset: f32, dt: f32) -> Rot {
+    fn ground_rotation(&mut self, pov: &Pov, car: &CameraTarget, settings: &CameraSettings, pitch_offset: f32, dt: f32) -> Rot {
         self.ground_normal = (self.ground_normal + (car.ground_normal - self.ground_normal) * smooth_alpha(GROUND_NORMAL_RATE, dt)).safe_normalized();
         let up = self.ground_normal;
         let right = up.cross(car.orientation.forward());
@@ -506,14 +591,14 @@ impl CarCamera {
             return target;
         }
         let scale = lerp(1.0, STIFFNESS_ROTATION_SCALE, settings.stiffness);
-        let current = self.pov.rotation;
+        let current = pov.rotation;
         let floor = if settings.stiffness < 1.0 { current.smooth_to(target, GROUND_ROTATION_RATE * scale, dt) } else { target };
         let wall = current.smooth_to(target, GROUND_ROTATION_RATE_WALL * scale, dt);
         floor.lerp(wall, 1.0 - up.z.abs())
     }
 
     /// `UpdateAirPOV`.
-    fn air_rotation(&self, car: &CameraTarget, pitch_offset: f32) -> Rot {
+    fn air_rotation(&self, pov: &Pov, car: &CameraTarget, pitch_offset: f32) -> Rot {
         let v = car.velocity;
         let speed_2d = (v.x * v.x + v.y * v.y).sqrt();
         if self.first {
@@ -523,13 +608,205 @@ impl CarCamera {
         }
         let rate = lerp(AIR_VELOCITY_INFLUENCE, AIR_VELOCITY_INFLUENCE_MAX_SPEED, (v.length() / CAR_MAX_SPEED).min(1.0));
         // Look at the car from where the camera is. The game applies this per frame, not per second.
-        let toward = Rot::of_dir(self.pov.focus - self.pov.location);
-        let mut rot = self.pov.rotation.lerp(toward, (rate / 60.0).min(1.0));
+        let toward = Rot::of_dir(pov.focus - pov.location);
+        let mut rot = pov.rotation.lerp(toward, (rate / 60.0).min(1.0));
         // ScalePitch: flatten while the car comes towards the camera.
         if v.dot(rot.dir()) < 0.0 {
             rot.pitch *= 1.0 - speed_2d / CAR_MAX_SPEED;
         }
         rot
+    }
+}
+
+/// Rocket League's player camera: car cam, and ball cam when the host passes a ball. Keep one per
+/// viewed car and call [`CarCamera::update`] or [`CarCamera::update_with_ball`] every rendered
+/// frame; call [`CarCamera::reset`] when the car teleports.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CarCamera {
+    /// None until the first update.
+    mode: Option<Mode>,
+    state: StateMemory,
+    /// The active state's view. It carries over when the state changes, like the game's.
+    pov: Pov,
+    /// Current swivel (pitch, yaw), radians.
+    swivel: (f32, f32),
+    transition: Option<Transition>,
+    /// What the transition added last frame (`TransitionDelta`).
+    transition_delta: PovDelta,
+    /// Where ball cam last saw the ball (`OldBallLocation`).
+    last_ball: Option<Vec3>,
+    /// Ball cam was showing the rear view last frame (`bWasReverseCam`).
+    was_rear: bool,
+}
+
+impl Default for CarCamera {
+    fn default() -> Self {
+        CarCamera::new()
+    }
+}
+
+impl CarCamera {
+    pub fn new() -> CarCamera {
+        CarCamera {
+            mode: None,
+            state: StateMemory {
+                first: true,
+                on_ground: true,
+                air_ground_blend: 1.0,
+                ground_normal: Vec3::Z,
+                focus: Smoothed::default(),
+                focus_offset: Smoothed::default(),
+                distance: Smoothed::default(),
+            },
+            pov: Pov::default(),
+            swivel: (0.0, 0.0),
+            transition: None,
+            transition_delta: PovDelta::default(),
+            last_ball: None,
+            was_rear: false,
+        }
+    }
+
+    /// Starts over from the car's current pose on the next update (no smoothing from the old one).
+    pub fn reset(&mut self) {
+        *self = CarCamera::new();
+    }
+
+    /// Moves everything the camera remembers by `delta` uu (when the host shifts its origin).
+    pub fn translate(&mut self, delta: Vec3) {
+        // The focus offset is relative to the car and transitions are relative to the view; the
+        // rest are world positions.
+        if let Some(v) = self.state.focus.value.as_mut() {
+            *v += delta;
+        }
+        self.pov.focus += delta;
+        self.pov.location += delta;
+        if let Some(b) = self.last_ball.as_mut() {
+            *b += delta;
+        }
+    }
+
+    /// How much of the view is ball cam: 1 in ball cam, 0 in car cam, in between while blending.
+    pub fn ball_cam_blend(&self) -> f32 {
+        let ball = if self.mode == Some(Mode::Ball) { 1.0 } else { 0.0 };
+        match self.transition {
+            Some(t) => lerp(ball, 1.0 - ball, t.weight()),
+            None => ball,
+        }
+    }
+
+    /// Whether the camera is (blending towards) its ground behaviour: 1 = ground, 0 = air.
+    pub fn air_ground_blend(&self) -> f32 {
+        self.state.air_ground_blend
+    }
+
+    /// Advances the car cam by `dt` seconds of real time and returns this frame's view.
+    pub fn update(&mut self, car: &CameraTarget, input: &CameraInput, settings: &CameraSettings, dt: f32) -> CameraView {
+        self.update_with_ball(car, None, input, settings, dt)
+    }
+
+    /// Like [`CarCamera::update`], in ball cam while `ball` (its position) is given and car cam
+    /// otherwise, blending between the two when it changes. Pass `None` while ball cam is off or
+    /// there is no ball to look at.
+    pub fn update_with_ball(&mut self, car: &CameraTarget, ball: Option<Vec3>, input: &CameraInput, settings: &CameraSettings, dt: f32) -> CameraView {
+        let settings = settings.clamped();
+        let dt = if dt.is_finite() { dt.max(0.0) } else { 0.0 };
+        let ball = ball.filter(|b| b.x.is_finite() && b.y.is_finite() && b.z.is_finite());
+        if ball.is_some() {
+            self.last_ball = ball;
+        }
+        let want = if ball.is_some() { Mode::Ball } else { Mode::Car };
+
+        // CameraStateBlender_X.Tick.
+        if let Some(t) = self.transition.as_mut() {
+            t.remaining -= dt;
+            if t.remaining <= 0.0 {
+                self.transition = None;
+                self.transition_delta = PovDelta::default();
+            }
+        }
+
+        match self.mode {
+            None => {
+                self.mode = Some(want);
+                self.state = StateMemory::begin(car);
+                self.run_state(want, car, input, &settings, dt);
+            }
+            Some(mode) if mode != want => {
+                // TransitionToState / BlendCameraState: one last frame of the old state (keeping
+                // its rotation from the frame before), then the new state from scratch, and the
+                // difference eased out from there.
+                let time = settings.transition_time();
+                let previous = if time > 0.0 {
+                    let mut snapshot = self.pov;
+                    let mut old = *self;
+                    old.run_state(mode, car, input, &settings, dt);
+                    snapshot.focus = old.pov.focus;
+                    snapshot.distance = old.pov.distance;
+                    snapshot.fov = old.pov.fov;
+                    Some(snapshot)
+                } else {
+                    None
+                };
+                self.mode = Some(want);
+                self.state = StateMemory::begin(car);
+                self.run_state(want, car, input, &settings, dt);
+                self.transition = previous.map(|p| {
+                    let d = self.transition_delta;
+                    Transition {
+                        remaining: time,
+                        time,
+                        offset: PovDelta {
+                            focus: p.focus - self.pov.focus + d.focus,
+                            rotation: p.rotation.sub(self.pov.rotation).normalized().add(d.rotation).normalized(),
+                            distance: p.distance - self.pov.distance + d.distance,
+                            fov: p.fov - self.pov.fov + d.fov,
+                        },
+                    }
+                });
+            }
+            Some(mode) => self.run_state(mode, car, input, &settings, dt),
+        }
+
+        // CameraStateBlender_X.PostProcessPOV.
+        self.transition_delta = self.transition.map_or(PovDelta::default(), |t| t.offset.scale(t.weight()));
+        let d = self.transition_delta;
+        let mut post = self.pov;
+        post.focus += d.focus;
+        post.rotation = post.rotation.add(d.rotation);
+        post.distance += d.distance;
+        post.fov += d.fov;
+
+        // Camera_TA.PostProcessCameraState: swivel, then rear view, around the focus.
+        self.update_swivel(car, input, &settings, dt);
+        post.rotation = post.rotation.add(Rot { pitch: self.swivel.0, yaw: self.swivel.1, roll: 0.0 });
+        if input.rear_view {
+            post.rotation.yaw += std::f32::consts::PI;
+        }
+        post.finalize();
+        CameraView { location: post.location, orientation: post.rotation.axes(), fov: post.fov, focus: post.focus }
+    }
+
+    /// One frame of a camera state's `UpdatePOV`.
+    fn run_state(&mut self, mode: Mode, car: &CameraTarget, input: &CameraInput, settings: &CameraSettings, dt: f32) {
+        match mode {
+            Mode::Car => self.state.car_cam(&mut self.pov, car, settings, FOCUS_MAX_DISTANCE, dt),
+            Mode::Ball => {
+                // CameraState_BallCam_TA.UpdateValidPOV: the rear view is the car cam, and
+                // switching between them snaps.
+                if input.rear_view {
+                    self.state.first = !self.was_rear;
+                    self.was_rear = true;
+                } else {
+                    self.state.first |= self.was_rear;
+                    self.was_rear = false;
+                }
+                match (input.rear_view, self.last_ball) {
+                    (false, Some(ball)) => self.state.ball_cam(&mut self.pov, car, ball, settings, dt),
+                    _ => self.state.car_cam(&mut self.pov, car, settings, FOCUS_MAX_DISTANCE, dt),
+                }
+            }
+        }
     }
 
     /// `Camera_TA.UpdateSwivel` / `GetDesiredSwivel`.
@@ -714,6 +991,170 @@ mod tests {
         let v = settle(&mut CarCamera::new(), &s, &CameraInput { rear_view: true, ..Default::default() }, 120);
         assert!(v.orientation.forward().x < -0.99);
         assert!(v.location.x > s.position.x + 200.0);
+    }
+
+    #[test]
+    fn ball_cam_looks_past_the_car_at_the_ball() {
+        let s = driving(0.0);
+        let target = CameraTarget::from_state(&s);
+        let ball = s.position + Vec3::new(0.0, 2000.0, 0.0);
+        let mut cam = CarCamera::new();
+        let mut v = cam.update(&target, &CameraInput::default(), &CameraSettings::DEFAULT, 1.0 / 60.0);
+        for _ in 0..240 {
+            v = cam.update_with_ball(&target, Some(ball), &CameraInput::default(), &CameraSettings::DEFAULT, 1.0 / 60.0);
+        }
+        assert_eq!(cam.ball_cam_blend(), 1.0);
+        assert!(v.orientation.forward().y > 0.95, "{:?}", v.orientation.forward());
+        assert!(v.location.y < s.position.y - 150.0);
+        for _ in 0..240 {
+            v = cam.update(&target, &CameraInput::default(), &CameraSettings::DEFAULT, 1.0 / 60.0);
+        }
+        assert_eq!(cam.ball_cam_blend(), 0.0);
+        assert!(v.orientation.forward().x > 0.95);
+    }
+
+    fn ball_cam(cam: &mut CarCamera, s: &CarState, ball: Vec3, input: &CameraInput, settings: &CameraSettings, frames: usize) -> CameraView {
+        let mut v = None;
+        for _ in 0..frames {
+            v = Some(cam.update_with_ball(&CameraTarget::from_state(s), Some(ball), input, settings, DT));
+        }
+        v.unwrap()
+    }
+
+    fn pitch_deg(v: &CameraView) -> f32 {
+        deg(v.orientation.forward().z.asin())
+    }
+
+    /// The game's ball cam pitch: while the ball is within 4000 rotation units (22°) of level the
+    /// camera keeps the Angle setting and only turns.
+    #[test]
+    fn ball_cam_keeps_the_angle_while_the_ball_is_level() {
+        let s = driving(0.0);
+        let ball = Vec3::new(0.0, 2000.0, 93.0);
+        let v = ball_cam(&mut CarCamera::new(), &s, ball, &CameraInput::default(), &CameraSettings::DEFAULT, 300);
+        let f = v.orientation.forward();
+        assert!((deg(f.y.atan2(f.x)) - 90.0).abs() < 0.01, "{f:?}");
+        assert!((pitch_deg(&v) + 3.0).abs() < 0.01, "{}", pitch_deg(&v));
+        assert!(v.orientation.right().z.abs() < 1e-5, "rolled");
+        // Behind the car, opposite the ball.
+        assert!(v.location.y < -200.0 && v.location.x.abs() < 1.0, "{:?}", v.location);
+    }
+
+    /// A high ball: the focus rises by 0.005 uu per rotation unit of pitch and the camera follows
+    /// 80 % of the ball's pitch once it is 8000 units (44°) up.
+    #[test]
+    fn ball_cam_eases_into_a_high_ball() {
+        let s = driving(0.0);
+        let unit = 65536.0 / 360.0;
+        for (ball, eased) in [(Vec3::new(1200.0, 0.0, 1000.0), 0.0), (Vec3::new(400.0, 0.0, 1500.0), 1.0)] {
+            let v = ball_cam(&mut CarCamera::new(), &s, ball, &CameraInput::default(), &CameraSettings::DEFAULT, 300);
+            let base = s.position + Vec3::new(0.0, 0.0, 100.0);
+            let p1 = deg((ball - base).z.atan2(ball.x - base.x));
+            let focus = base + Vec3::new(0.0, 0.0, p1.abs() * unit * 0.005);
+            assert!((v.focus - focus).length() < 0.05, "{:?} vs {focus:?}", v.focus);
+            let p2 = deg((ball - focus).z.atan2(ball.x - focus.x));
+            let strength = ((p2.abs() * unit - 4000.0) / 4000.0).clamp(0.0, 1.0);
+            if eased == 1.0 {
+                assert_eq!(strength, 1.0);
+            } else {
+                assert!(strength > 0.0 && strength < 1.0, "{strength}");
+            }
+            let expected = -3.0 + (p2 + 3.0) * 0.8 * strength;
+            assert!((pitch_deg(&v) - expected).abs() < 0.05, "{} vs {expected}", pitch_deg(&v));
+        }
+    }
+
+    /// Car cam's focus trails a fast car (at most 100 uu); ball cam's does not trail at all.
+    #[test]
+    fn ball_cam_focus_does_not_lag() {
+        let mut s = driving(0.0);
+        s.velocity = Vec3::new(0.0, 2000.0, 0.0);
+        let ball = Vec3::new(3000.0, 0.0, 93.0);
+        let mut car = CarCamera::new();
+        let mut ball_cam = CarCamera::new();
+        let (mut cv, mut bv) = (None, None);
+        for _ in 0..120 {
+            s.position += s.velocity * DT;
+            let t = CameraTarget::from_state(&s);
+            cv = Some(car.update(&t, &CameraInput::default(), &CameraSettings::DEFAULT, DT));
+            bv = Some(ball_cam.update_with_ball(&t, Some(ball), &CameraInput::default(), &CameraSettings::DEFAULT, DT));
+        }
+        let focus = s.position + Vec3::new(0.0, 0.0, 100.0);
+        let lag = (cv.unwrap().focus - focus).length();
+        assert!(lag > 5.0 && lag <= 100.0, "{lag}");
+        let b = bv.unwrap().focus;
+        assert!((b.x - focus.x).abs() < 0.01 && (b.y - focus.y).abs() < 0.01, "{b:?} vs {focus:?}");
+    }
+
+    #[test]
+    fn focus_lag_is_capped() {
+        let mut f = Smoothed::default();
+        f.update(Vec3::ZERO, FOCUS_RATE, 100.0, DT);
+        let v = f.update(Vec3::new(5000.0, 0.0, 0.0), FOCUS_RATE, 100.0, DT);
+        assert!((v.x - 4900.0).abs() < 1e-3, "{v:?}");
+    }
+
+    /// Switching to ball cam starts from the car cam view and eases into ball cam over 0.5 s at
+    /// Transition Speed 1 (smoothstep), and cuts at Transition Speed 2.
+    #[test]
+    fn ball_cam_transition_blends_over_the_transition_time() {
+        let s = driving(0.0);
+        let t = CameraTarget::from_state(&s);
+        let ball = Vec3::new(0.0, 2000.0, 93.0);
+        let input = CameraInput::default();
+        let settings = CameraSettings::DEFAULT;
+
+        let mut cam = CarCamera::new();
+        let before = settle(&mut cam, &s, &input, 120);
+        let first = cam.update_with_ball(&t, Some(ball), &input, &settings, DT);
+        assert!((first.location - before.location).length() < 0.5, "{:?} vs {:?}", first.location, before.location);
+        assert!((first.orientation.forward() - before.orientation.forward()).length() < 1e-3);
+        assert!(cam.ball_cam_blend() < 0.01);
+        // Half way in time is half way in the blend (smoothstep(0.5) = 0.5).
+        let mut v = first;
+        for _ in 0..15 {
+            v = cam.update_with_ball(&t, Some(ball), &input, &settings, DT);
+        }
+        assert!((cam.ball_cam_blend() - 0.5).abs() < 0.01, "{}", cam.ball_cam_blend());
+        let yaw = deg(v.orientation.forward().y.atan2(v.orientation.forward().x));
+        assert!((yaw - 45.0).abs() < 1.0, "{yaw}");
+        for _ in 0..15 {
+            v = cam.update_with_ball(&t, Some(ball), &input, &settings, DT);
+        }
+        assert_eq!(cam.ball_cam_blend(), 1.0);
+        let pure = ball_cam(&mut CarCamera::new(), &s, ball, &input, &settings, 1);
+        assert!((v.location - pure.location).length() < 0.01, "{:?} vs {:?}", v.location, pure.location);
+
+        // And back to car cam.
+        let back = cam.update(&t, &input, &settings, DT);
+        assert!((back.location - v.location).length() < 0.5);
+        let back = settle(&mut cam, &s, &input, 30);
+        assert_eq!(cam.ball_cam_blend(), 0.0);
+        assert!((back.location - before.location).length() < 0.01);
+
+        // Transition Speed 2: straight cut.
+        let fast = CameraSettings { transition_speed: 2.0, ..settings };
+        assert_eq!(fast.transition_time(), 0.0);
+        let mut cam = CarCamera::new();
+        settle(&mut cam, &s, &input, 60);
+        let v = cam.update_with_ball(&t, Some(ball), &input, &fast, DT);
+        assert_eq!(cam.ball_cam_blend(), 1.0);
+        assert!((v.location - pure.location).length() < 0.01);
+    }
+
+    /// Rear view in ball cam is the car cam turned around, not ball cam turned around.
+    #[test]
+    fn rear_view_in_ball_cam_is_the_car_cam() {
+        let s = driving(0.0);
+        let ball = Vec3::new(0.0, 2000.0, 93.0);
+        let rear = CameraInput { rear_view: true, ..Default::default() };
+        let mut cam = CarCamera::new();
+        let v = ball_cam(&mut cam, &s, ball, &rear, &CameraSettings::DEFAULT, 120);
+        let car = settle(&mut CarCamera::new(), &s, &rear, 120);
+        assert!((v.location - car.location).length() < 0.01, "{:?} vs {:?}", v.location, car.location);
+        // Released: straight back to looking at the ball (it snaps).
+        let v = ball_cam(&mut cam, &s, ball, &CameraInput::default(), &CameraSettings::DEFAULT, 1);
+        assert!(v.orientation.forward().y > 0.99, "{:?}", v.orientation.forward());
     }
 
     #[test]

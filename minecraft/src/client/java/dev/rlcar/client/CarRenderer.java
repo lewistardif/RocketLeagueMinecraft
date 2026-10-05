@@ -7,6 +7,7 @@ import dev.rlcar.physics.CarPose;
 import dev.rlcar.physics.RlCarNative;
 import dev.rlcar.physics.Space;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -20,7 +21,9 @@ import org.joml.Quaternionf;
 
 /**
  * Draws a car at its simulated pose: the real Rocket League body and wheels when the extracted
- * models are available ({@link RlModels}), otherwise a plain box car sized from the hitbox.
+ * models are available ({@link RlModels}), with ports of the game's car material shaders
+ * ({@link RlShading}) when their inputs were extracted too, otherwise a plain box car sized from
+ * the hitbox.
  *
  * <p>Model space is +X forward, +Y up, +Z right, origin at the centre of mass. Wheels hang at the
  * simulated suspension length, steer, and roll with the car's speed, like in the Bevy demo.
@@ -45,6 +48,7 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		CarPose pose = car.renderPose(partialTicks);
 		state.pose = pose;
 		state.preset = car.preset();
+		state.carId = car.getId();
 		state.color = car.color();
 		System.arraycopy(hitbox(car.preset()), 0, state.hitbox, 0, 6);
 		if (pose != null) {
@@ -69,9 +73,17 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 	}
 
 	@Override
+	public boolean shouldRender(CarEntity car, Frustum frustum, double camX, double camY, double camZ, float partialTicks) {
+		// Demolished: gone until it respawns.
+		return !car.demolished() && super.shouldRender(car, frustum, camX, camY, camZ, partialTicks);
+	}
+
+	@Override
 	protected AABB getBoundingBoxForCulling(CarEntity car, float partialTicks) {
 		// Keep drawing while the boost smoke trails behind (it is part of this renderer).
-		return super.getBoundingBoxForCulling(car, partialTicks).inflate(RlBoost.smokeRadius(car));
+		// The effects too (their particles and trails, simulated in world space).
+		AABB box = super.getBoundingBoxForCulling(car, partialTicks);
+		return box.inflate(Math.max(RlBoost.smokeRadius(car), RlFx.radius(car, box.getCenter().x, box.getCenter().y, box.getCenter().z)));
 	}
 
 	private static float[] hitbox(int preset) {
@@ -94,6 +106,7 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		}
 		// Smoke first, world-aligned around the car origin.
 		RlBoost.submitSmoke(collector, poseStack, state, camera);
+		RlFx.submit(collector, poseStack, state.carId, state.x, state.y, state.z, camera);
 		poseStack.pushPose();
 		poseStack.rotate(pose.rotation);
 		if (state.boostCones != null) {
@@ -107,7 +120,10 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		RlModels.Model wheel = RlModels.wheel();
 		float[][] anchors = RlModels.anchors(state.preset);
 		if (body != null && wheel != null && anchors != null) {
-			submitModel(collector, poseStack, body, state.lightCoords);
+			boolean orange = state.color == CarEntity.ORANGE;
+			if (!RlShading.submit(collector, poseStack, body, "cars/" + RlCarNative.PRESETS[state.preset], orange, state.lightCoords)) {
+				submitModel(collector, poseStack, body, state.lightCoords);
+			}
 			for (int i = 0; i < 4; i++) {
 				boolean front = i < 2;
 				boolean left = i % 2 == 1;
@@ -122,7 +138,9 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 					// The mesh's outer face is +Z; turn left wheels around so it faces outwards.
 					poseStack.rotate(new Quaternionf().rotationY(Mth.PI));
 				}
-				submitModel(collector, poseStack, wheel, state.lightCoords);
+				if (!RlShading.submit(collector, poseStack, wheel, "wheel", orange, state.lightCoords)) {
+					submitModel(collector, poseStack, wheel, state.lightCoords);
+				}
 				poseStack.popPose();
 			}
 		} else {
@@ -132,23 +150,23 @@ public class CarRenderer extends EntityRenderer<CarEntity, CarRenderState> {
 		super.submit(state, poseStack, collector, camera);
 	}
 
-	private static void submitModel(SubmitNodeCollector collector, PoseStack poseStack, RlModels.Model model, int light) {
+	static void submitModel(SubmitNodeCollector collector, PoseStack poseStack, RlModels.Model model, int light) {
 		for (RlModels.Part part : model.parts()) {
 			collector.submitCustomGeometry(poseStack, RenderTypes.entityCutout(part.texture()), (p, b) -> {
-				float[] pos = part.positions();
-				float[] nrm = part.normals();
+				float[] pos = PosedMesh.positions(p, part.positions());
+				float[] nrm = PosedMesh.normals(p, part.normals());
 				float[] uv = part.uvs();
 				int[] tri = part.triangles();
 				for (int t = 0; t + 2 < tri.length; t += 3) {
 					// Entity render types draw quads: a triangle is a quad with its last vertex repeated.
 					for (int k = 0; k < 4; k++) {
 						int v = tri[t + Math.min(k, 2)];
-						b.addVertex(p, pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
+						b.addVertex(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
 							.setColor(-1)
 							.setUv(uv[v * 2], uv[v * 2 + 1])
 							.setOverlay(OverlayTexture.NO_OVERLAY)
 							.setLight(light)
-							.setNormal(p, nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
+							.setNormal(nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]);
 					}
 				}
 			});

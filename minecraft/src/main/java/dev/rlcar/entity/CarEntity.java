@@ -8,6 +8,8 @@ import dev.rlcar.physics.CarSim;
 import dev.rlcar.physics.RlCarNative;
 import dev.rlcar.physics.Space;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.BlockPos;
@@ -42,10 +44,16 @@ import org.jspecify.annotations.Nullable;
  * simulates and the server adopts the states it sends ({@link #acceptDriverState}); otherwise the
  * server simulates the car itself (it rolls, falls and settles) and puts it to sleep once it
  * rests, waking it when blocks around it change.
+ *
+ * <p>Either way the server applies Rocket League's bumps and demolitions to whatever the car hits
+ * ({@link CarBumps}). A demolished car disappears for Rocket League's three seconds, then comes
+ * back at rest where it was destroyed.
  */
 public class CarEntity extends VehicleEntity {
 	private static final EntityDataAccessor<Integer> DATA_PRESET = SynchedEntityData.defineId(CarEntity.class, EntityDataSerializers.INT);
 	private static final EntityDataAccessor<Integer> DATA_COLOR = SynchedEntityData.defineId(CarEntity.class, EntityDataSerializers.INT);
+	/** Ticks until a demolished car comes back; 0 = not demolished. */
+	private static final EntityDataAccessor<Integer> DATA_RESPAWN = SynchedEntityData.defineId(CarEntity.class, EntityDataSerializers.INT);
 
 	public static final int BLUE = 0x2F6FE0;
 	public static final int ORANGE = 0xF08A1C;
@@ -53,6 +61,8 @@ public class CarEntity extends VehicleEntity {
 	/** Ticks of the core per Minecraft tick (120 Hz / 20 Hz). */
 	private static final int SUBSTEPS = 6;
 	private static final int SLEEP_AFTER_TICKS = 40;
+	/** Rocket League's respawn time after a demolition (3 s). */
+	private static final int RESPAWN_TICKS = 60;
 
 	// Server.
 	private @Nullable CarSim sim;
@@ -62,6 +72,8 @@ public class CarEntity extends VehicleEntity {
 	private int restTicks;
 	private boolean asleep;
 	private int sleepHash;
+	/** Entity id -> tick until which this car cannot bump it again. */
+	private final Map<Integer, Integer> bumpCooldowns = new HashMap<>();
 
 	// Client.
 	private @Nullable CarPose previousPose;
@@ -91,6 +103,7 @@ public class CarEntity extends VehicleEntity {
 		super.defineSynchedData(builder);
 		builder.define(DATA_PRESET, 0);
 		builder.define(DATA_COLOR, BLUE);
+		builder.define(DATA_RESPAWN, 0);
 	}
 
 	public int preset() {
@@ -103,6 +116,11 @@ public class CarEntity extends VehicleEntity {
 
 	public @Nullable Player driver() {
 		return this.getFirstPassenger() instanceof Player p ? p : null;
+	}
+
+	/** True while the car is destroyed (between a demolition and its respawn). */
+	public boolean demolished() {
+		return this.entityData.get(DATA_RESPAWN) > 0;
 	}
 
 	// ------------------------------------------------------------------------------- ticking
@@ -134,6 +152,16 @@ public class CarEntity extends VehicleEntity {
 
 	private void serverTick(ServerLevel level) {
 		CarSim sim = this.sim();
+		int respawn = this.entityData.get(DATA_RESPAWN);
+		if (respawn > 0) {
+			this.entityData.set(DATA_RESPAWN, respawn - 1);
+			if (respawn == 1) {
+				// Back at rest where it was destroyed, upright.
+				sim.resetAt(this.position().add(0, 0.3, 0), this.getYRot());
+				this.wake();
+			}
+			return;
+		}
 		if (this.driver() != null) {
 			// The driver's client simulates; poses arrive through acceptDriverState.
 			this.wake();
@@ -150,6 +178,7 @@ public class CarEntity extends VehicleEntity {
 		CarPose pose = sim.pose(1.0F, new CarPose());
 		this.applyPose(pose);
 		this.broadcast(pose, null);
+		CarBumps.check(level, this, sim, pose, this.bumpCooldowns);
 
 		boolean resting = pose.has(RlCarNative.FLAG_ON_GROUND) && before.distanceToSqr(pose.position()) < 1.0E-6;
 		this.restTicks = resting ? this.restTicks + 1 : 0;
@@ -197,6 +226,36 @@ public class CarEntity extends VehicleEntity {
 		CarPose pose = this.sim.pose(1.0F, new CarPose());
 		this.applyPose(pose);
 		this.broadcast(pose, player);
+		if (this.level() instanceof ServerLevel level) {
+			CarBumps.check(level, this, this.sim, pose, this.bumpCooldowns);
+		}
+	}
+
+	/** Server: the car's current pose, or null before its first step. */
+	@Nullable CarPose serverPose() {
+		return this.lastPose;
+	}
+
+	/** Server: the car's current velocity (Minecraft axes, blocks/s). */
+	Vec3 serverVelocity() {
+		return this.sim().velocity();
+	}
+
+	/** Server: another car bumped this one; add {@code velocity} (blocks/s) to it. */
+	void bumped(Vec3 velocity) {
+		if (this.driver() instanceof ServerPlayer driver) {
+			// The driver's client simulates the car; its next state carries the bump back.
+			ServerPlayNetworking.send(driver, new CarNet.Bumped(this.getId(), velocity));
+		} else {
+			this.sim().addVelocity(velocity);
+			this.wake();
+		}
+	}
+
+	/** Server: destroyed by a supersonic hit. The driver is thrown out; the car respawns after three seconds. */
+	void demolish() {
+		this.ejectPassengers();
+		this.entityData.set(DATA_RESPAWN, RESPAWN_TICKS);
 	}
 
 	// ---------------------------------------------------------------------------- riding
@@ -207,7 +266,7 @@ public class CarEntity extends VehicleEntity {
 		if (result != InteractionResult.PASS) {
 			return result;
 		}
-		if (player.isSecondaryUseActive() || !this.getPassengers().isEmpty()) {
+		if (player.isSecondaryUseActive() || !this.getPassengers().isEmpty() || this.demolished()) {
 			return InteractionResult.PASS;
 		}
 		return !this.level().isClientSide() && !player.startRiding(this) ? InteractionResult.PASS : InteractionResult.SUCCESS;
@@ -215,7 +274,7 @@ public class CarEntity extends VehicleEntity {
 
 	@Override
 	protected boolean canAddPassenger(Entity passenger) {
-		return passenger instanceof Player && this.getPassengers().isEmpty();
+		return passenger instanceof Player && this.getPassengers().isEmpty() && !this.demolished();
 	}
 
 	@Override
@@ -244,7 +303,7 @@ public class CarEntity extends VehicleEntity {
 
 	@Override
 	public boolean isPickable() {
-		return !this.isRemoved();
+		return !this.isRemoved() && !this.demolished();
 	}
 
 	// ------------------------------------------------------------------------------ client

@@ -69,6 +69,21 @@ impl FixedStepper {
         n
     }
 
+    pub fn consume(&mut self, frame_dt: f64) -> u32 {
+        self.accumulator += frame_dt.max(0.0);
+        let tick = TICK_DT as f64;
+        let mut n = 0;
+        while self.accumulator >= tick {
+            if n >= self.max_ticks_per_frame {
+                self.accumulator = 0.0;
+                break;
+            }
+            self.accumulator -= tick;
+            n += 1;
+        }
+        n
+    }
+
     /// Fraction (0..1) of a tick elapsed since `current`; render `lerp(previous, current, alpha)`.
     pub fn alpha(&self) -> f32 {
         (self.accumulator / TICK_DT as f64).clamp(0.0, 1.0) as f32
