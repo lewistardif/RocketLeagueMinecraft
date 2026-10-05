@@ -259,7 +259,8 @@ public final class RlModels {
 		MipmappedTexture(String label, NativeImage base) {
 			List<NativeImage> levels = new ArrayList<>();
 			levels.add(base);
-			while (levels.getLast().getWidth() > 1 || levels.getLast().getHeight() > 1) {
+			// Down to the smaller side's 1 px: the GPU texture holds log2(min(w, h)) + 1 levels.
+			while (levels.getLast().getWidth() > 1 && levels.getLast().getHeight() > 1) {
 				levels.add(halve(levels.getLast()));
 			}
 			GpuDevice device = RenderSystem.getDevice();

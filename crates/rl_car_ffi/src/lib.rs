@@ -17,12 +17,13 @@ pub mod snapshot;
 
 pub use box_world::{Aabb, BoxWorld, Face};
 
+use rl_car_core::boost_meter::BoostMeterView;
 use rl_car_core::camera::{CameraInput, CameraSettings, CameraTarget, CarCamera};
 use rl_car_core::{CarState, Controls, FixedStepper, HitboxPreset, Mat3, Quat, RotMat, TICK_DT, Vec3, step_with};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped whenever a signature or a buffer layout below changes.
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
 /// Floats written by [`rlcar_car_pose`]:
 ///
@@ -561,6 +562,65 @@ pub unsafe extern "C" fn rlcar_camera_preset(index: u32, out: *mut f32) -> u32 {
     CameraSettings::PRESETS.len() as u32
 }
 
+// ------------------------------------------------------------------------------------ boost meter
+
+/// Floats written by [`rlcar_boost_meter_update`] (see `rl_car_core::boost_meter`):
+///
+/// | index | content |
+/// |---|---|
+/// | 0 | frame of the fill timelines (1..=101) |
+/// | 1 | the number's glow blur (px of the HUD movie) |
+/// | 2 | glow clip scale |
+/// | 3 | length of the number's text (0..=4) |
+/// | 4..8 | the text, ASCII codes |
+/// | 8..64 | colour transforms (`mult` RGBA, then `add` RGBA with colours in 0..255), in this order: background, glow, fill, tinted fill, background text, label, number |
+pub const BOOST_METER_FLOATS: usize = 64;
+
+/// A new boost meter, as the HUD shows it before its first value. Free with
+/// [`rlcar_boost_meter_free`].
+#[unsafe(no_mangle)]
+pub extern "C" fn rlcar_boost_meter_new() -> *mut BoostMeterView {
+    Box::into_raw(Box::new(BoostMeterView::new()))
+}
+
+/// # Safety
+/// `meter` must come from [`rlcar_boost_meter_new`] and not be used afterwards (null is ignored).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_boost_meter_free(meter: *mut BoostMeterView) {
+    if !meter.is_null() {
+        drop(unsafe { Box::from_raw(meter) });
+    }
+}
+
+/// Advances the meter by `dt` seconds with the car's boost (0..=100) and writes what to draw
+/// ([`BOOST_METER_FLOATS`] floats). Returns 1, or 0 if nothing was written.
+///
+/// # Safety
+/// `meter` is null or valid; `out` points to [`BOOST_METER_FLOATS`] writable floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rlcar_boost_meter_update(meter: *mut BoostMeterView, boost: f32, dt: f32, out: *mut f32) -> u32 {
+    let Some(meter) = (unsafe { meter.as_mut() }) else { return 0 };
+    if out.is_null() {
+        return 0;
+    }
+    let out = unsafe { std::slice::from_raw_parts_mut(out, BOOST_METER_FLOATS) };
+    guard(0, || {
+        let f = meter.update(boost, dt);
+        out[0] = f.fill_frame as f32;
+        out[1] = f.text_glow_blur;
+        out[2] = f.glow_scale;
+        out[3] = f.text_len as f32;
+        for i in 0..4 {
+            out[4 + i] = f.text[i] as f32;
+        }
+        for (i, ct) in [f.background, f.glow, f.fill, f.fill_tinted, f.background_text, f.label, f.boost_text].iter().enumerate() {
+            out[8 + i * 8..12 + i * 8].copy_from_slice(&ct.mult);
+            out[12 + i * 8..16 + i * 8].copy_from_slice(&ct.add);
+        }
+        1
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -573,6 +633,21 @@ mod tests {
             }
         }
         v
+    }
+
+    #[test]
+    fn c_api_boost_meter() {
+        unsafe {
+            let m = rlcar_boost_meter_new();
+            let mut out = [0.0f32; BOOST_METER_FLOATS];
+            for _ in 0..120 {
+                assert_eq!(rlcar_boost_meter_update(m, 100.0, 1.0 / 120.0, out.as_mut_ptr()), 1);
+            }
+            assert_eq!(out[0], 101.0);
+            assert_eq!(&out[3..7], &[3.0, b'1' as f32, b'0' as f32, b'0' as f32]);
+            assert_eq!(out[1], 8.0);
+            rlcar_boost_meter_free(m);
+        }
     }
 
     #[test]

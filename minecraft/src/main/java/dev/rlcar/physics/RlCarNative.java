@@ -35,7 +35,7 @@ import net.fabricmc.loader.api.FabricLoader;
  */
 public final class RlCarNative {
 	/** Must match {@code rl_car_ffi::ABI_VERSION}. */
-	public static final int ABI_VERSION = 3;
+	public static final int ABI_VERSION = 4;
 	/** Must match {@code rl_car_ffi::POSE_FLOATS}. */
 	public static final int POSE_FLOATS = 40;
 	/** Must match {@code rl_car_ffi::CAMERA_SETTINGS_FLOATS}. */
@@ -43,6 +43,8 @@ public final class RlCarNative {
 	/** Must match {@code rl_car_ffi::CAMERA_VIEW_FLOATS}. */
 	public static final int CAMERA_VIEW_FLOATS = 17;
 	public static final int CAMERA_REAR_VIEW = 1;
+	/** Must match {@code rl_car_ffi::BOOST_METER_FLOATS}. */
+	public static final int BOOST_METER_FLOATS = 64;
 
 	public static final int FLAG_ON_GROUND = 1;
 	public static final int FLAG_BOOSTING = 1 << 1;
@@ -82,6 +84,9 @@ public final class RlCarNative {
 	static final MethodHandle CAMERA_TRANSLATE;
 	static final MethodHandle CAMERA_UPDATE;
 	static final MethodHandle CAMERA_PRESET;
+	static final MethodHandle BOOST_METER_NEW;
+	static final MethodHandle BOOST_METER_FREE;
+	static final MethodHandle BOOST_METER_UPDATE;
 
 	static {
 		SymbolLookup lib = SymbolLookup.libraryLookup(libraryPath(), Arena.global());
@@ -122,6 +127,9 @@ public final class RlCarNative {
 		CAMERA_UPDATE = bind(linker, lib, "rlcar_camera_update",
 			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT, ADDRESS));
 		CAMERA_PRESET = bind(linker, lib, "rlcar_camera_preset", FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS));
+		BOOST_METER_NEW = bind(linker, lib, "rlcar_boost_meter_new", FunctionDescriptor.of(ADDRESS));
+		BOOST_METER_FREE = bind(linker, lib, "rlcar_boost_meter_free", FunctionDescriptor.ofVoid(ADDRESS));
+		BOOST_METER_UPDATE = bind(linker, lib, "rlcar_boost_meter_update", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, ADDRESS));
 	}
 
 	private RlCarNative() {

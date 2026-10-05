@@ -24,6 +24,7 @@
 //! * Deterministic: no clocks, no randomness, no threads, fixed float operation order.
 
 pub mod body;
+pub mod boost_meter;
 pub mod camera;
 pub mod config;
 pub mod consts;

@@ -43,6 +43,11 @@ Without it, and on the box car, boosting shows a simple flickering flame. The bo
 parameters are compiled into the shader when the game starts, so a re-extracted boost needs a
 restart.
 
+The HUD's boost meter (`hud/`) is drawn the same way as in the Bevy demo: Rocket League's own meter,
+with its logic in the Rust core (`rl_car_core::boost_meter`, through the C ABI) and a GUI shader for
+its colour transforms (`boost_meter.vsh/.fsh`). It sits in the bottom-right corner while driving,
+and the speed moves to the bottom left. Without the extracted HUD a plain boost bar is shown.
+
 ### Playing
 
 In game: take **RL Car** from the *Tools & Utilities* creative tab and use it on a block. Sneak

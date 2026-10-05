@@ -10,7 +10,9 @@ Pipeline
   3. rebuild each material for Bevy's PBR (bake the team paint, swizzle normal maps, light masks to
      emissive) and write one glTF per car and team, plus the default wheel;
   4. read the default boost (flame cones, smoke trail) straight from the cooked objects (`boost.py`,
-     `ue3.py`) into `boost/`.
+     `ue3.py`) into `boost/`;
+  5. read the HUD's boost meter (its Scaleform movie, textures and fonts) into `hud/` (`hud.py`,
+     `swf.py`).
 
 Requirements: Python 3.9+ with numpy and Pillow, the .NET SDK (8+), UModel
 (https://www.gildor.org/en/projects/umodel) and RL-UPKSuite (https://github.com/Martinii89/RL-UPKSuite).
@@ -34,6 +36,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from boost import PACKAGES as BOOST_PACKAGES, Boost  # noqa: E402
+from hud import PACKAGES as HUD_PACKAGES, BoostMeter  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_GAME = Path(r"C:\Program Files\Epic Games\rocketleague")
@@ -361,7 +364,7 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
     exe = build_decryptor(args.upksuite.resolve(), args.work.resolve())
-    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0]} | set(BOOST_PACKAGES)), pkgs)
+    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0]} | set(BOOST_PACKAGES) | set(HUD_PACKAGES)), pkgs)
     link_texture_caches(cooked, pkgs)
 
     for preset, (package, mesh) in CARS.items():
@@ -393,6 +396,9 @@ def main() -> None:
     print("boost: flame cones, smoke trail")
     grouped = args.work / "export_groups"
     Boost(pkgs, args.out, CARS, lambda package, obj, kind: umodel_export_grouped(umodel, pkgs, grouped, package, obj, kind)).run()
+
+    print("hud: boost meter")
+    BoostMeter(pkgs, args.out).run()
 
     (args.out / "README.txt").write_text(
         "Extracted from a local Rocket League install by tools/rl_assets/extract.py.\n"
