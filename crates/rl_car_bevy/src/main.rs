@@ -15,6 +15,7 @@ mod boost;
 mod collision;
 mod convert;
 mod fx;
+mod hud;
 mod input;
 mod visuals;
 #[cfg(test)]
@@ -52,6 +53,7 @@ fn main() {
         .add_plugins(boost::BoostPlugin)
         .add_plugins(audio::CarAudioPlugin)
         .add_plugins(fx::FxPlugin)
+        .add_plugins(hud::HudPlugin)
         .insert_resource(ClearColor(Color::srgb(0.55, 0.68, 0.85)))
         .insert_resource(Sim::new(HitboxPreset::Octane))
         .insert_resource(CameraRig::default())
@@ -59,7 +61,7 @@ fn main() {
         .insert_resource(autopilot)
         .insert_resource(Showcase::from_args())
         .add_systems(Startup, (arena::spawn_arena, spawn_car, spawn_camera, spawn_hud, slow_motion))
-        .add_systems(Update, (hotkeys, simulate, sync_car, boost::sync_cones, sync_wheels, follow_camera, boost::update, fx::update, fx::draw, audio::drive, audio::update_voices, update_hud, autopilot_shots, showcase, visuals::generate_mipmaps).chain())
+        .add_systems(Update, (hotkeys, simulate, sync_car, boost::sync_cones, sync_wheels, follow_camera, boost::update, fx::update, fx::draw, audio::drive, audio::update_voices, hud::update, update_hud, autopilot_shots, showcase, visuals::generate_mipmaps).chain())
         .run();
 }
 

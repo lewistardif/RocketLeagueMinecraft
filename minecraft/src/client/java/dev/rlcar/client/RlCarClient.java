@@ -22,6 +22,7 @@ public final class RlCarClient implements ClientModInitializer {
 		RlShading.registerPipelines();
 		RlFx.registerPipelines();
 		BallMarker.registerPipelines();
+		CarHud.registerPipeline();
 		EntityRendererRegistry.register(RlCar.CAR, CarRenderer::new);
 		EntityRendererRegistry.register(RlCar.BALL, BallRenderer::new);
 		HudElementRegistry.addLast(RlCar.id("car_hud"), CarHud::draw);

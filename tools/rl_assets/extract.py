@@ -15,7 +15,9 @@ Pipeline
      car material shaders use (`shading.py`): `materials.json` per car and the wheel, `shading/`;
      likewise for the ball's material and its ground reticle (`ball/materials.json`);
   6. with --wwiser and --vgmstream: the car's sounds (engine, boost, jumps, dodges, landings, tyres,
-     impacts, supersonic) from the game's Wwise sound banks (`audio.py`) into `audio/`.
+     impacts, supersonic) from the game's Wwise sound banks (`audio.py`) into `audio/`;
+  7. read the HUD's boost meter (its Scaleform movie, textures and fonts) into `hud/` (`hud.py`,
+     `swf.py`).
 
 Objects already exported to the work folder are not exported again.
 
@@ -48,6 +50,7 @@ from boost import PACKAGES as BOOST_PACKAGES, Boost  # noqa: E402
 from fx import PACKAGES as FX_PACKAGES, FX  # noqa: E402
 from shading import ShadingWriter  # noqa: E402
 from ue3 import Package  # noqa: E402
+from hud import PACKAGES as HUD_PACKAGES, BoostMeter  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_GAME = Path(r"C:\Program Files\Epic Games\rocketleague")
@@ -525,7 +528,7 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
     exe = build_decryptor(args.upksuite.resolve(), args.work.resolve())
-    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0], BALL[0]} | set(BOOST_PACKAGES) | set(AUDIO_PACKAGES) | set(FX_PACKAGES)), pkgs)
+    decrypt(exe, keys, cooked, sorted({p for p, _ in CARS.values()} | {WHEEL[0], BALL[0]} | set(BOOST_PACKAGES) | set(AUDIO_PACKAGES) | set(FX_PACKAGES) | set(HUD_PACKAGES)), pkgs)
     link_texture_caches(cooked, pkgs)
 
     for preset, (package, mesh) in CARS.items():
@@ -580,6 +583,9 @@ def main() -> None:
     print("boost: flame cones, smoke trail")
     grouped = args.work / "export_groups"
     Boost(pkgs, args.out, CARS, lambda package, obj, kind: umodel_export_grouped(umodel, pkgs, grouped, package, obj, kind)).run()
+
+    print("hud: boost meter")
+    BoostMeter(pkgs, args.out).run()
 
     print("fx: jump/dodge/supersonic/impact particles, camera shakes, rumble")
     FX(pkgs, args.out, lambda package, obj, kind: umodel_export_grouped(umodel, pkgs, grouped, package, obj, kind)).run()

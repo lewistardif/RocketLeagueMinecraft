@@ -26,6 +26,7 @@
 pub mod ball;
 pub mod body;
 pub mod bump;
+pub mod boost_meter;
 pub mod camera;
 pub mod config;
 pub mod consts;

@@ -118,7 +118,7 @@ Not included: free look, camera shake, and the bob from the car body's visual su
 demo has no ball, so it only shows the car camera. Like the game, the camera only keeps 10 uu above the floor and
 can see through walls.
 
-### Real Rocket League car models and boost (optional)
+### Real Rocket League car models, boost and boost meter (optional)
 
 If you own Rocket League, `tools/rl_assets/extract.py` pulls the real car models out of your install
 into `assets/rl/` (git-ignored), and the demo then uses them instead of the placeholder box car. One
@@ -152,6 +152,26 @@ The Minecraft mod plays the same sounds and effects (Java ports of both; see
 
 The placeholder box car (and a real car when the boost was not extracted) gets a simple flickering
 flame cone instead.
+
+And it extracts the HUD's **boost meter** (bottom right), which is a Scaleform (Flash) clip inside
+the game's HUD movie (`GFX_Hud_SF`, symbol `BoostMeterViewMovie`):
+- **Artwork:** its four textures, the 101 frames of its two fill timelines (each a wedge polygon
+  clipping the fill texture), its text fields, and its two fonts, "Dashboard Numbers Wide" for the
+  number and "Bourgeois Medium" for the "BOOST" label. The glyphs are rasterized from the game's
+  own font outlines (`GFX_Fonts_SF`) into atlases. The clip's placement, sizes and layer order are
+  read from the movie (`tools/rl_assets/hud.py`, with a small SWF reader in `swf.py`).
+- **Behaviour:** the meter's ActionScript (`tagame.hud.BoostMeterView`) is ported by hand into
+  [`crates/rl_car_core/src/boost_meter.rs`](crates/rl_car_core/src/boost_meter.rs). That covers
+  the number easing to each new value, the amber look turning pink/red with a blinking "BOOST"
+  above 80, the white flash and glow pop when boost goes up, and the clip's 3D tilt and
+  perspective. It also moves with the bottom-right corner and scales with the window height, like
+  the game's HUD.
+- The Bevy demo draws it with an overlay camera and a shader that applies Flash's colour transforms
+  and 3D projection (`crates/rl_car_bevy/src/hud.rs`). Scaleform blends in gamma space, so the meter
+  is drawn into its own buffer that keeps gamma-space values and is composited once over the scene.
+  Only that final step blends in linear light.
+- Not reproduced: the "team coloured boost meter" option, the HUD
+  scale and safe-zone settings (taken as 1), and the meter's sounds.
 
 ```bash
 python tools/rl_assets/extract.py --umodel <folder with umodel_64.exe> --upksuite <RL-UPKSuite release folder>
@@ -281,6 +301,7 @@ crates/rl_car_core/       physics core (no dependencies)
   src/stepper.rs          fixed 120 Hz accumulator
   src/maneuvers.rs        dodge / half-flip input scripts
   src/camera.rs           Rocket League's car camera and ball cam (presentation only)
+  src/boost_meter.rs      Rocket League's boost meter logic (presentation only)
   src/ball.rs             the ball: rules and state
   src/scene.rs            cars + ball in one tick (step_scene), car-ball contacts, extra hit impulse
   src/island.rs           multi-body contact solver with RocketSim's averaged ball contacts
@@ -289,9 +310,11 @@ crates/rl_car_core/       physics core (no dependencies)
 crates/rl_car_bevy/       Bevy 0.19 demo + avian3d collision host
   src/visuals.rs          optional real car models (assets/rl), wheel anchors, mipmaps
   src/boost.rs            boost flame cones and smoke (the game's when extracted), simple flame
-  src/shaders/            ports of the boost's flame and smoke material shaders
-tools/rl_assets/          extractor for the real car models and boost from your own game install
+  src/hud.rs              the game's boost meter (when extracted)
+  src/shaders/            ports of the boost's flame and smoke material shaders, boost meter
+tools/rl_assets/          extractor for the real car models, boost and boost meter from your own game install
   boost.py, ue3.py        the boost's meshes, placement, material and particle data
+  hud.py, swf.py          the boost meter from the HUD's Scaleform movie and font library
 crates/rl_car_validate/   scenarios, comparison, report, regression test
 crates/rl_car_ffi/        C ABI over the core + BoxWorld (seamless collision from voxel boxes)
 minecraft/                Fabric mod: car entity, renderer, camera, networking, tests

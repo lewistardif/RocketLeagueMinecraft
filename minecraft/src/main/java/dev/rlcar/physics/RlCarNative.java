@@ -35,7 +35,7 @@ import net.fabricmc.loader.api.FabricLoader;
  */
 public final class RlCarNative {
 	/** Must match {@code rl_car_ffi::ABI_VERSION}. */
-	public static final int ABI_VERSION = 5;
+	public static final int ABI_VERSION = 6;
 	/** Must match {@code rl_car_ffi::POSE_FLOATS}. */
 	public static final int POSE_FLOATS = 40;
 	/** Must match {@code rl_car_ffi::CAMERA_SETTINGS_FLOATS}. */
@@ -48,6 +48,8 @@ public final class RlCarNative {
 	public static final int BALL_POSE_FLOATS = 9;
 	/** Rocket League's ball radius (uu), {@code rl_car_core::BALL_RADIUS}. */
 	public static final float BALL_RADIUS = 91.25F;
+	/** Must match {@code rl_car_ffi::BOOST_METER_FLOATS}. */
+	public static final int BOOST_METER_FLOATS = 64;
 
 	public static final int FLAG_ON_GROUND = 1;
 	public static final int FLAG_BOOSTING = 1 << 1;
@@ -107,6 +109,9 @@ public final class RlCarNative {
 	static final MethodHandle SCENE_STEP;
 	static final MethodHandle SCENE_ADVANCE;
 	static final MethodHandle CAR_BALL_TOUCH;
+	static final MethodHandle BOOST_METER_NEW;
+	static final MethodHandle BOOST_METER_FREE;
+	static final MethodHandle BOOST_METER_UPDATE;
 
 	static {
 		SymbolLookup lib = SymbolLookup.libraryLookup(libraryPath(), Arena.global());
@@ -164,6 +169,9 @@ public final class RlCarNative {
 		SCENE_ADVANCE = bind(linker, lib, "rlcar_scene_advance",
 			FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, JAVA_DOUBLE, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_FLOAT, JAVA_INT));
 		CAR_BALL_TOUCH = bind(linker, lib, "rlcar_car_ball_touch", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
+		BOOST_METER_NEW = bind(linker, lib, "rlcar_boost_meter_new", FunctionDescriptor.of(ADDRESS));
+		BOOST_METER_FREE = bind(linker, lib, "rlcar_boost_meter_free", FunctionDescriptor.ofVoid(ADDRESS));
+		BOOST_METER_UPDATE = bind(linker, lib, "rlcar_boost_meter_update", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_FLOAT, JAVA_FLOAT, ADDRESS));
 	}
 
 	private RlCarNative() {
